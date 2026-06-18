@@ -1,0 +1,22 @@
+{
+  "_comment": "Each user lists the repos they may access. A repo is shared simply by listing the same 'path' in more than one user's config (the 'id'/'name' can differ per user). Paths are container paths — mount the matching host dirs in docker-compose.yml. Generate passwordHash with: make hashpw",
+
+  "users": [
+    {
+      "username": "user",
+      "passwordHash": "$2a$10$REPLACE_WITH_OUTPUT_OF_hashpw_xxxxxxxxxxxxxxxxxxxxxxxx",
+      "repos": [
+        { "id": "personal", "name": "Personal", "path": "/data/repo" },
+        { "id": "work", "name": "Work", "path": "/data/work-notes" }
+      ]
+    },
+    {
+      "username": "sam",
+      "passwordHash": "$2a$10$REPLACE_WITH_OUTPUT_OF_hashpw_xxxxxxxxxxxxxxxxxxxxxxxx",
+      "repos": [
+        { "id": "sam", "name": "Sam's Notes", "path": "/data/sam-notes" },
+        { "id": "shared", "name": "User (shared)", "path": "/data/repo" }
+      ]
+    }
+  ]
+}

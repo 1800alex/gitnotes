@@ -1,0 +1,12 @@
+# Secrets & local config
+.env
+users.json
+
+# Build output
+frontend/_site/
+frontend/node_modules/
+backend/notes
+
+# Misc
+*.log
+.DS_Store
