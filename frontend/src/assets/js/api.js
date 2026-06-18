@@ -99,6 +99,28 @@
         "/api/note?repo=" + encodeURIComponent(repo) + "&path=" + encodeURIComponent(path)
       );
     },
+    // Upload a file into the repo (multipart) and return its stored path.
+    async uploadFile(repo, path, file) {
+      const fd = new FormData();
+      fd.append("repo", repo);
+      fd.append("path", path);
+      fd.append("file", file);
+      const headers = {};
+      if (Auth.token) headers["Authorization"] = "Bearer " + Auth.token;
+      const res = await fetch("/api/upload", { method: "POST", headers, body: fd });
+      if (res.status === 401 && Auth.isAuthenticated()) {
+        Auth.clear();
+        window.location.replace("/login/");
+        throw new ApiError("Session expired", 401);
+      }
+      let data = null;
+      const text = await res.text();
+      if (text) {
+        try { data = JSON.parse(text); } catch (_) { data = { error: text }; }
+      }
+      if (!res.ok) throw new ApiError((data && data.error) || "Upload failed", res.status);
+      return data;
+    },
     // Fetch a raw repo file (e.g. an image) with auth and return an object URL.
     // <img> can't send a bearer header, so we fetch it and hand back a blob URL.
     async rawObjectUrl(repo, path) {

@@ -518,9 +518,53 @@
     insertBlock("```" + lang + "\n" + (sel || "") + "\n```");
   }
 
+  // Splice text in at an explicit range (used after an async upload, where the
+  // live selection may have moved).
+  function insertTextAt(start, end, str) {
+    textarea.value = textarea.value.slice(0, start) + str + textarea.value.slice(end);
+    const pos = start + str.length;
+    textarea.focus();
+    textarea.setSelectionRange(pos, pos);
+    markEdited();
+    recordHistory();
+  }
+
+  // Pick an image, ask where to save it (path relative to this note), upload it
+  // into the repo, and insert the markdown at the cursor.
+  function uploadImage() {
+    if (!current || !currentRepo) return;
+    const at = { start: textarea.selectionStart, end: textarea.selectionEnd };
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.addEventListener("change", async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const safeName = file.name.replace(/[^\w.\-]+/g, "-");
+      let rel = prompt("Save image as (path relative to this note):", "images/" + safeName);
+      if (rel === null) return;
+      rel = rel.trim().replace(/^\/+/, "");
+      if (!rel) return;
+      const repoPath = resolveRelPath(current.path, rel);
+      const t = toast("Uploading " + file.name + "…", "info");
+      try {
+        await Api.uploadFile(currentRepo, repoPath, file);
+        if (t) t.remove();
+        const alt = file.name.replace(/\.[^.]+$/, "");
+        insertTextAt(at.start, at.end, "![" + alt + "](" + rel + ")");
+        toast("Image uploaded & inserted.", "success");
+      } catch (err) {
+        if (t) t.remove();
+        toast("Upload failed: " + err.message, "error");
+      }
+    });
+    input.click();
+  }
+
   const inserters = {
     link: () => insertLink(false),
     image: () => insertLink(true),
+    upload: uploadImage,
     table: insertTable,
     code: insertCodeBlock,
     bold: () => wrap("**", "**", "bold text"),

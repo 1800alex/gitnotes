@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -12,6 +13,9 @@ import (
 	"strings"
 	"time"
 )
+
+// maxUpload caps the size of an uploaded attachment.
+const maxUpload = 32 << 20 // 32 MiB
 
 // Notes serves the markdown files inside each user's git-backed repos and ties
 // write operations to commits/pushes. Every request is scoped to one repo,
@@ -210,6 +214,62 @@ func (n *Notes) HandleRaw(w http.ResponseWriter, r *http.Request) {
 	// ServeContent sets Content-Type from the extension (and handles range
 	// requests), which is what image elements need.
 	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
+}
+
+// HandleUpload: POST /api/upload (multipart: repo, path, file) — store an
+// uploaded file (e.g. an image) in the repo, then commit + push.
+func (n *Notes) HandleUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload+(1<<20))
+	if err := r.ParseMultipartForm(maxUpload); err != nil {
+		writeError(w, http.StatusBadRequest, "upload too large or malformed")
+		return
+	}
+	h, repoDir, ok := n.resolve(w, r, r.FormValue("repo"))
+	if !ok {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	rel, abs, err := n.resolvePath(repoDir, r.FormValue("path"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	src, _, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "missing file")
+		return
+	}
+	defer src.Close()
+
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create directory: "+err.Error())
+		return
+	}
+	dst, err := os.Create(abs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not write file: "+err.Error())
+		return
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		writeError(w, http.StatusInternalServerError, "could not write file: "+err.Error())
+		return
+	}
+	dst.Close()
+
+	user := userFromContext(r.Context())
+	msg := fmt.Sprintf("Add %s", rel)
+	if user != "" {
+		msg = fmt.Sprintf("%s (via %s)", msg, user)
+	}
+	commit, err := h.git.CommitPath(rel, msg, n.cfg.AutoPush)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "saved file but git failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"path": rel, "git": commit})
 }
 
 type saveRequest struct {
