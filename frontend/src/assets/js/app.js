@@ -231,7 +231,62 @@
       return;
     }
     preview.innerHTML = window.marked.parse(textarea.value || "");
+    enhancePreview();
     hydrateImages();
+    scrollToHash();
+  }
+
+  // GitHub-ish slug for heading anchors.
+  function slugify(s) {
+    return (s || "")
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+  }
+
+  // Give headings stable ids (so #anchor links work) and make external links
+  // open in a new tab (so clicking one doesn't navigate away from the app).
+  function enhancePreview() {
+    const seen = new Map();
+    preview.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach((h) => {
+      let slug = slugify(h.textContent) || "section";
+      const n = seen.get(slug) || 0;
+      seen.set(slug, n + 1);
+      if (n) slug += "-" + n;
+      h.id = slug;
+    });
+    preview.querySelectorAll("a[href]").forEach((a) => {
+      if (/^https?:/i.test(a.getAttribute("href") || "")) {
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+      }
+    });
+  }
+
+  function findAnchor(id) {
+    if (!id) return null;
+    const sel = "#" + (window.CSS && CSS.escape ? CSS.escape(id) : id);
+    try {
+      return preview.querySelector(sel);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Scroll the preview container (not the window — the app shell is locked) so
+  // the element sits near the top.
+  function scrollPreviewTo(el) {
+    const er = el.getBoundingClientRect();
+    const cr = preview.getBoundingClientRect();
+    preview.scrollTo({ top: preview.scrollTop + (er.top - cr.top) - 8, behavior: "smooth" });
+  }
+
+  function scrollToHash() {
+    const el = findAnchor(decodeURIComponent((location.hash || "").slice(1)));
+    if (el) scrollPreviewTo(el);
   }
 
   // Resolve a repo-relative image src against the current note's directory.
@@ -1285,6 +1340,21 @@
   );
   sidebarToggle.addEventListener("click", toggleSidebar);
   sidebarBackdrop.addEventListener("click", closeSidebar);
+
+  // In-note anchor links (e.g. a table of contents) scroll the preview.
+  preview.addEventListener("click", (e) => {
+    const a = e.target.closest('a[href^="#"]');
+    if (!a) return;
+    e.preventDefault();
+    const id = decodeURIComponent(a.getAttribute("href").slice(1));
+    const el = findAnchor(id);
+    if (el) {
+      scrollPreviewTo(el);
+      history.replaceState(null, "", "#" + id); // shareable, no jump
+    }
+  });
+  // URL hash changes (typed or shared link) scroll to the heading.
+  window.addEventListener("hashchange", scrollToHash);
   todoForm.addEventListener("submit", (e) => {
     e.preventDefault();
     addTodo(todoInput.value);
