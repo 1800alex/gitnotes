@@ -1,8 +1,7 @@
 services:
-  notes:
-    build: .
-    image: notes-app
-    container_name: notes
+  gitnotes:
+    image: ghcr.io/1800alex/gitnotes:latest
+    container_name: gitnotes
     restart: unless-stopped
     ports:
       - "${PORT:-8080}:8080"
