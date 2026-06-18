@@ -828,8 +828,22 @@ html.app-root {
 .markdown-body table { border-collapse: collapse; width: 100%; margin: 0 0 1em; }
 .markdown-body th, .markdown-body td { border: 1px solid var(--line-light); padding: 7px 11px; text-align: left; }
 .markdown-body th { background: var(--paper-2); }
-.markdown-body img { display: inline-block; }
+.markdown-body img { display: inline-block; max-width: 100%; }
+.markdown-body .img-missing { color: var(--muted); font-style: italic; font-size: .9em; }
 .markdown-body hr { border: 0; border-top: 1px solid var(--line-light); margin: 1.6em 0; }
+
+/* GFM task lists: drop the bullet on checkbox items and tint the box lime. */
+.markdown-body li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.25em;
+}
+.markdown-body input[type="checkbox"] {
+  width: 1.05em;
+  height: 1.05em;
+  margin: 0 .45em 0 0;
+  vertical-align: -0.12em;
+  accent-color: var(--accent-2);
+}
 
 /* ---------------------------------------------------------------- *
  *  Toasts

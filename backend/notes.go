@@ -52,10 +52,10 @@ type NoteMeta struct {
 	Modified string `json:"modified"` // RFC3339
 }
 
-// safePath validates a user-supplied repo-relative path against a repo root and
-// returns the cleaned relative path plus its absolute on-disk location. It
-// rejects traversal, absolute paths, and anything outside the note extension.
-func (n *Notes) safePath(repoDir, rel string) (string, string, error) {
+// resolvePath validates a user-supplied repo-relative path against a repo root
+// and returns the cleaned relative path plus its absolute on-disk location. It
+// rejects traversal, absolute paths, and any dot-segment (e.g. .git, .env).
+func (n *Notes) resolvePath(repoDir, rel string) (string, string, error) {
 	rel = strings.TrimSpace(rel)
 	if rel == "" {
 		return "", "", errors.New("path is required")
@@ -68,13 +68,27 @@ func (n *Notes) safePath(repoDir, rel string) (string, string, error) {
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
 		return "", "", errors.New("path escapes the repository")
 	}
-	if !strings.HasSuffix(strings.ToLower(clean), n.cfg.NoteExt) {
-		return "", "", fmt.Errorf("only %s files are allowed", n.cfg.NoteExt)
+	for _, seg := range strings.Split(clean, "/") {
+		if strings.HasPrefix(seg, ".") {
+			return "", "", errors.New("dotfiles are not accessible")
+		}
 	}
 	abs := filepath.Join(repoDir, filepath.FromSlash(clean))
 	repoAbs, _ := filepath.Abs(repoDir)
 	if !strings.HasPrefix(abs, repoAbs+string(os.PathSeparator)) {
 		return "", "", errors.New("path escapes the repository")
+	}
+	return clean, abs, nil
+}
+
+// safePath is resolvePath plus the note-extension restriction (for note CRUD).
+func (n *Notes) safePath(repoDir, rel string) (string, string, error) {
+	clean, abs, err := n.resolvePath(repoDir, rel)
+	if err != nil {
+		return "", "", err
+	}
+	if !strings.HasSuffix(strings.ToLower(clean), n.cfg.NoteExt) {
+		return "", "", fmt.Errorf("only %s files are allowed", n.cfg.NoteExt)
 	}
 	return clean, abs, nil
 }
@@ -166,6 +180,36 @@ func (n *Notes) HandleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"path": rel, "content": string(data)})
+}
+
+// HandleRaw: GET /api/raw?repo=<id>&path=... — serve a raw repo file (any type,
+// e.g. images referenced from a note). Authenticated + repo-scoped + path-safe.
+func (n *Notes) HandleRaw(w http.ResponseWriter, r *http.Request) {
+	h, repoDir, ok := n.resolve(w, r, r.URL.Query().Get("repo"))
+	if !ok {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, abs, err := n.resolvePath(repoDir, r.URL.Query().Get("path"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	f, err := os.Open(abs)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "file not found")
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		writeError(w, http.StatusNotFound, "file not found")
+		return
+	}
+	// ServeContent sets Content-Type from the extension (and handles range
+	// requests), which is what image elements need.
+	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
 }
 
 type saveRequest struct {

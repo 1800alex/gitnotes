@@ -58,6 +58,7 @@ func main() {
 	protected.HandleFunc("GET /api/repos", notes.HandleRepos)
 	protected.HandleFunc("GET /api/notes", notes.HandleList)
 	protected.HandleFunc("GET /api/note", notes.HandleGet)
+	protected.HandleFunc("GET /api/raw", notes.HandleRaw)
 	protected.HandleFunc("PUT /api/note", notes.HandleSave)
 	protected.HandleFunc("DELETE /api/note", notes.HandleDelete)
 	protected.HandleFunc("GET /api/status", notes.HandleStatus)

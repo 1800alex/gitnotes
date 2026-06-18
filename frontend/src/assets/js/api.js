@@ -99,6 +99,18 @@
         "/api/note?repo=" + encodeURIComponent(repo) + "&path=" + encodeURIComponent(path)
       );
     },
+    // Fetch a raw repo file (e.g. an image) with auth and return an object URL.
+    // <img> can't send a bearer header, so we fetch it and hand back a blob URL.
+    async rawObjectUrl(repo, path) {
+      const headers = {};
+      if (Auth.token) headers["Authorization"] = "Bearer " + Auth.token;
+      const res = await fetch(
+        "/api/raw?repo=" + encodeURIComponent(repo) + "&path=" + encodeURIComponent(path),
+        { headers }
+      );
+      if (!res.ok) throw new ApiError("file not found", res.status);
+      return URL.createObjectURL(await res.blob());
+    },
     // base is the content originally loaded — lets the server 3-way merge
     // concurrent edits instead of overwriting them.
     saveNote(repo, path, content, base, message) {

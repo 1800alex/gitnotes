@@ -2,6 +2,9 @@
 .env
 users.json
 
+# Dev folder
+/dev/
+
 # Build output
 frontend/_site/
 frontend/node_modules/

@@ -220,12 +220,56 @@
     if (!saving) setSyncState(!current ? "idle" : v ? "dirty" : "saved");
   }
 
+  let imgObjectUrls = [];
+
   function renderPreview() {
+    // Release object URLs from the previous render to avoid leaks.
+    imgObjectUrls.forEach(URL.revokeObjectURL);
+    imgObjectUrls = [];
     if (!window.marked) {
       preview.textContent = textarea.value;
       return;
     }
     preview.innerHTML = window.marked.parse(textarea.value || "");
+    hydrateImages();
+  }
+
+  // Resolve a repo-relative image src against the current note's directory.
+  function resolveRelPath(notePath, src) {
+    let parts;
+    if (src.startsWith("/")) {
+      parts = src.split("/");
+    } else {
+      const dir = notePath.includes("/") ? notePath.slice(0, notePath.lastIndexOf("/")) : "";
+      parts = (dir ? dir.split("/") : []).concat(src.split("/"));
+    }
+    const out = [];
+    for (const p of parts) {
+      if (p === "" || p === ".") continue;
+      if (p === "..") out.pop();
+      else out.push(p);
+    }
+    return out.join("/");
+  }
+
+  // Load images referenced by repo-relative paths through the authenticated raw
+  // endpoint (external http(s)/data/blob URLs load natively and are left alone).
+  function hydrateImages() {
+    if (!current || !currentRepo) return;
+    preview.querySelectorAll("img").forEach(async (img) => {
+      const src = img.getAttribute("src") || "";
+      if (!src || /^(https?:|data:|blob:)/i.test(src)) return;
+      try {
+        const url = await Api.rawObjectUrl(currentRepo, resolveRelPath(current.path, src));
+        imgObjectUrls.push(url);
+        img.src = url;
+      } catch (_) {
+        img.replaceWith(Object.assign(document.createElement("span"), {
+          className: "img-missing",
+          textContent: "🖼️ " + (img.getAttribute("alt") || src) + " (not found)",
+        }));
+      }
+    });
   }
 
   function setMode(next) {
