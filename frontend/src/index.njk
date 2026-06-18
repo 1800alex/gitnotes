@@ -1,0 +1,161 @@
+---
+layout: layouts/base.njk
+title: Notebook
+permalink: /
+bodyClass: app-body
+---
+<header class="app-header">
+  <a class="brand" href="/">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span>
+      <strong>{{ site.name }}</strong>
+      <em>{{ site.tagline }}</em>
+    </span>
+  </a>
+
+  <div class="app-header-actions">
+    <button class="button button-ghost sidebar-toggle" type="button" data-sidebar-toggle title="Browse notes" aria-label="Browse notes">
+      <i class="fa-solid fa-bars"></i>
+    </button>
+    <span class="git-pill" data-status title="Repository status">
+      <i class="fa-solid fa-code-branch"></i>
+      <span data-status-text>…</span>
+    </span>
+    <button class="button button-ghost" type="button" data-refresh title="Fetch &amp; pull from upstream">
+      <i class="fa-solid fa-rotate"></i><span class="btn-label"> Refresh</span>
+    </button>
+    <span class="sync-pill sync-idle" data-sync hidden title="Sync status">
+      <i class="fa-solid fa-cloud"></i><span class="btn-label" data-sync-text></span>
+    </span>
+    <button class="button button-primary" type="button" data-save title="Save (Ctrl+S)" disabled>
+      <i class="fa-solid fa-floppy-disk"></i><span class="btn-label"> Save</span>
+    </button>
+  </div>
+</header>
+
+<div class="app-layout">
+  <button class="sidebar-backdrop" type="button" data-sidebar-backdrop aria-label="Close note list"></button>
+
+  <aside class="app-sidebar">
+    <div class="repo-select" data-repo-wrap hidden>
+      <i class="fa-solid fa-database"></i>
+      <select data-repo-select aria-label="Repository"></select>
+      <i class="fa-solid fa-chevron-down repo-caret"></i>
+    </div>
+    <div class="sidebar-search">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      <input type="search" placeholder="Filter notes…" data-filter aria-label="Filter notes">
+    </div>
+    <nav class="note-list" data-note-list aria-label="Notes">
+      <p class="note-list-empty" data-list-empty>Loading…</p>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="button button-primary" type="button" data-new>
+        <i class="fa-solid fa-file-circle-plus"></i> New note
+      </button>
+      <button class="button button-ghost sidebar-logout" type="button" data-logout title="Sign out">
+        <i class="fa-solid fa-right-from-bracket"></i> Sign out
+      </button>
+    </div>
+  </aside>
+
+  <main class="app-editor" data-editor-pane hidden>
+    <div class="editor-toolbar">
+      <div class="editor-path">
+        <i class="fa-solid fa-file-lines"></i>
+        <span data-current-path>No note open</span>
+        <span class="dirty-dot" data-dirty hidden title="Unsaved changes">●</span>
+      </div>
+      <div class="editor-history">
+        <button class="tool-btn" type="button" data-undo title="Undo (Ctrl+Z)" aria-label="Undo" disabled>
+          <i class="fa-solid fa-rotate-left"></i>
+        </button>
+        <button class="tool-btn" type="button" data-redo title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>
+          <i class="fa-solid fa-rotate-right"></i>
+        </button>
+      </div>
+      <div class="editor-modes" role="tablist">
+        <div class="insert-wrap">
+          <button class="button button-ghost" data-insert-menu type="button"
+            title="Insert markdown" aria-haspopup="true" aria-expanded="false">
+            <i class="fa-solid fa-toolbox"></i>
+          </button>
+          <div class="insert-menu" data-insert-dropdown role="menu" hidden>
+            <button type="button" role="menuitem" data-insert="link"><i class="fa-solid fa-link"></i> Link</button>
+            <button type="button" role="menuitem" data-insert="image"><i class="fa-solid fa-image"></i> Image</button>
+            <button type="button" role="menuitem" data-insert="table"><i class="fa-solid fa-table-cells"></i> Table</button>
+            <button type="button" role="menuitem" data-insert="code"><i class="fa-solid fa-code"></i> Code block</button>
+            <div class="insert-sep" role="separator"></div>
+            <button type="button" role="menuitem" data-insert="bold"><i class="fa-solid fa-bold"></i> Bold</button>
+            <button type="button" role="menuitem" data-insert="italic"><i class="fa-solid fa-italic"></i> Italic</button>
+            <button type="button" role="menuitem" data-insert="heading"><i class="fa-solid fa-heading"></i> Heading</button>
+            <button type="button" role="menuitem" data-insert="ul"><i class="fa-solid fa-list-ul"></i> Bullet list</button>
+            <button type="button" role="menuitem" data-insert="task"><i class="fa-solid fa-square-check"></i> Checklist</button>
+            <button type="button" role="menuitem" data-insert="quote"><i class="fa-solid fa-quote-right"></i> Quote</button>
+          </div>
+        </div>
+        <button class="mode-btn mode-btn-icon" data-mode="todo" type="button"
+          title="Checklist mode" aria-label="Checklist mode"><i class="fa-solid fa-list-check"></i></button>
+        <button class="mode-btn is-active" data-mode="edit" type="button">Edit</button>
+        <button class="mode-btn" data-mode="split" type="button">Split</button>
+        <button class="mode-btn" data-mode="preview" type="button">Preview</button>
+        <button class="button button-ghost danger" data-delete type="button" title="Delete note">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+      </div>
+    </div>
+    <div class="editor-body" data-mode-container>
+      <textarea class="editor-textarea" data-textarea spellcheck="true"
+        placeholder="# Start writing in markdown…"></textarea>
+      <div class="editor-preview markdown-body" data-preview></div>
+    </div>
+
+    <div class="editor-todo" data-todo-pane hidden>
+      <div class="todo-toolbar">
+        <span class="todo-count" data-todo-count></span>
+        <div class="todo-toolbar-actions">
+          <button class="todo-mini" type="button" data-todo-collapse-all
+            title="Collapse / expand all groups">
+            <i class="fa-solid fa-angles-up"></i>
+          </button>
+          <button class="todo-mini" type="button" data-todo-compact
+            title="Compact view" aria-pressed="false">
+            <i class="fa-solid fa-compress"></i>
+          </button>
+        </div>
+      </div>
+      <div class="todo-scroll">
+        <ul class="todo-list" data-todo-list></ul>
+        <p class="todo-empty" data-todo-empty hidden>
+          No checklist items in this note yet. Add one below, or write
+          <code>- [ ] task</code> lines in Edit mode.
+        </p>
+      </div>
+      <form class="todo-add" data-todo-add>
+        <input type="text" data-todo-input placeholder="Add a task…" aria-label="Add a task"
+          autocomplete="off">
+        <button class="button button-primary" type="submit" aria-label="Add task">
+          <i class="fa-solid fa-plus"></i>
+        </button>
+      </form>
+    </div>
+  </main>
+
+  <div class="app-empty" data-empty-state>
+    <div>
+      <i class="fa-solid fa-feather-pointed"></i>
+      <h2>Pick a note</h2>
+      <p>Select a note from the sidebar, or create a new one to get started.</p>
+      <button class="button button-primary" type="button" data-new-empty>
+        <i class="fa-solid fa-file-circle-plus"></i> New note
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-stack" data-toasts aria-live="polite"></div>
+{% block scripts %}
+<script src="/assets/js/marked.min.js?v={{ version }}"></script>
+<script src="/assets/js/api.js?v={{ version }}"></script>
+<script src="/assets/js/app.js?v={{ version }}"></script>
+{% endblock %}

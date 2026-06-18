@@ -1,0 +1,949 @@
+/* Notes app — layout + components, built on the tokens in main.css. */
+
+/* The [hidden] attribute must win over the display rules below (which would
+ * otherwise force grid/flex items to stay visible). */
+[hidden] { display: none !important; }
+
+/* ---------------------------------------------------------------- *
+ *  Shared additions
+ * ---------------------------------------------------------------- */
+.button-ghost {
+  background: transparent;
+  color: var(--white);
+  border-color: rgba(255, 255, 255, .28);
+}
+.button-ghost:hover,
+.button-ghost:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.button-ghost.danger:hover {
+  border-color: #ff6b6b;
+  color: #ff6b6b;
+}
+.button .btn-label { margin-left: 2px; }
+
+.button.is-loading {
+  opacity: .65;
+  pointer-events: none;
+  position: relative;
+}
+.button.is-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------------------------------------------------------------- *
+ *  Login page
+ * ---------------------------------------------------------------- */
+.auth-body { background: var(--ink); }
+
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 40px 20px;
+  background:
+    radial-gradient(circle at 82% 18%, rgba(213, 255, 66, .14), transparent 30%),
+    linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, .035) 1px, transparent 1px),
+    var(--ink);
+  background-size: auto, 42px 42px, 42px 42px, auto;
+}
+
+.auth-grid {
+  width: min(940px, 100%);
+  display: grid;
+  grid-template-columns: 1.1fr .9fr;
+  gap: clamp(28px, 6vw, 72px);
+  align-items: center;
+  color: var(--white);
+}
+
+.auth-brand h1 {
+  margin-top: 14px;
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+.auth-brand .lead { color: rgba(255, 255, 255, .72); }
+.auth-brand .brand { margin-bottom: 30px; color: var(--white); }
+
+.auth-panel {
+  border: 1px solid var(--line-dark);
+  background: rgba(255, 255, 255, .04);
+  box-shadow: var(--shadow);
+  padding: clamp(24px, 4vw, 40px);
+}
+
+.auth-form { display: grid; gap: 16px; }
+.auth-form label {
+  display: grid;
+  gap: 8px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: rgba(255, 255, 255, .8);
+}
+.auth-form input {
+  background: rgba(255, 255, 255, .08);
+  color: var(--white);
+  border-color: var(--line-dark);
+  font-size: 16px; /* ≥16px stops iOS Safari from auto-zooming on focus */
+}
+.auth-form input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.auth-form .button { margin-top: 6px; width: 100%; }
+
+.auth-error {
+  margin: 0;
+  padding: 11px 13px;
+  border: 1px solid #ff6b6b;
+  background: rgba(255, 107, 107, .12);
+  color: #ffd5d5;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .82rem;
+}
+
+@media (max-width: 760px) {
+  .auth-grid { grid-template-columns: 1fr; }
+  .auth-brand { text-align: left; }
+}
+
+/* ---------------------------------------------------------------- *
+ *  App shell
+ * ---------------------------------------------------------------- */
+/* Applied to <html> on the app page only (added by app.js). Locks the document
+ * so the on-screen keyboard can't scroll the whole shell, and keeps the dark
+ * default html background from showing through during keyboard transitions. */
+html.app-root {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--paper);
+}
+
+.app-body {
+  /* Aligned to the *visual* viewport by app.js: its height is set to the
+   * visible area and it is translated by the visual viewport's offset, so iOS
+   * Safari's keyboard can neither clip the header nor let the shell drift. The
+   * keyboard overlays below it; only the inner panes (textarea, note list)
+   * scroll. 100dvh is the pre-JS fallback. */
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+}
+
+.app-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 20px;
+  min-height: 64px;
+  background: rgba(16, 19, 23, .96);
+  color: var(--white);
+  border-bottom: 1px solid var(--line-dark);
+}
+.app-header .brand { color: var(--white); }
+.app-header .brand-mark { width: 40px; height: 40px; }
+
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Keep every header glyph (buttons + sync pill) the same size. */
+.app-header-actions .button i,
+.sync-pill i {
+  font-size: 1rem;
+  line-height: 1;
+}
+.app-header-actions .button {
+  min-height: 40px;
+  padding: 9px 13px;
+  font-size: .72rem;
+}
+
+.git-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-dark);
+  background: rgba(255, 255, 255, .04);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .74rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .7);
+  white-space: nowrap;
+}
+
+/* Sync status — stays visible on mobile so you know whether your work is safe.
+ * It's a <span>, so it must replicate the header buttons' box metrics to match. */
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 9px 13px;
+  border: 1px solid var(--line-dark);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+.sync-saved  { color: var(--accent); border-color: rgba(213, 255, 66, .4); }
+.sync-dirty  { color: rgba(255, 255, 255, .65); }
+.sync-saving { color: #ffce54; border-color: rgba(255, 206, 84, .4); }
+.sync-error  { color: #ff8c8c; border-color: rgba(255, 107, 107, .5); }
+.git-pill.has-upstream { color: rgba(255, 255, 255, .85); }
+.git-pill.has-upstream i { color: var(--accent); }
+.git-pill.behind i { color: #ffce54; }
+
+.app-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+}
+
+/* The mobile drawer affordances are inert on desktop. */
+.sidebar-toggle { display: none; }
+.sidebar-backdrop { display: none; }
+
+/* ---- sidebar ---- */
+.app-sidebar {
+  border-right: 1px solid var(--line-light);
+  background: var(--paper-2);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.repo-select {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line-light);
+  color: var(--muted);
+}
+.repo-select > .fa-database { font-size: .85rem; }
+.repo-select select {
+  flex: 1 1 auto;
+  min-width: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--line-light);
+  background: var(--white);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  padding: 9px 28px 9px 10px;
+  cursor: pointer;
+}
+.repo-caret {
+  position: absolute;
+  right: 22px;
+  font-size: .7rem;
+  pointer-events: none;
+}
+
+.sidebar-search {
+  position: relative;
+  padding: 14px;
+  border-bottom: 1px solid var(--line-light);
+}
+.sidebar-search i {
+  position: absolute;
+  left: 26px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: .85rem;
+}
+.sidebar-search input {
+  padding-left: 34px;
+  background: var(--white);
+  border-color: var(--line-light);
+}
+
+.note-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.note-list-empty {
+  margin: 14px;
+  color: var(--muted);
+  font-size: .85rem;
+}
+
+/* New note + Sign out live at the bottom of the sidebar (reached via the
+ * hamburger on mobile), keeping the top header uncluttered. */
+.sidebar-footer {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line-light);
+  background: var(--paper-2);
+}
+.sidebar-footer .button { min-height: 42px; font-size: .72rem; }
+.sidebar-footer [data-new] { flex: 1 1 auto; }
+/* Ghost buttons sit on a light surface here, so they need dark ink. */
+.sidebar-footer .button-ghost {
+  flex: 0 0 auto;
+  color: var(--ink);
+  border-color: var(--line-light);
+}
+.sidebar-footer .button-ghost:hover,
+.sidebar-footer .button-ghost:focus-visible {
+  color: var(--ink);
+  border-color: var(--ink);
+  background: rgba(16, 19, 23, .05);
+}
+.note-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 10px 12px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--ink);
+  border-radius: var(--radius);
+}
+.note-item:hover { background: rgba(16, 19, 23, .05); }
+.note-item.is-active {
+  background: var(--ink);
+  color: var(--white);
+  border-color: var(--ink);
+}
+.note-item.is-active .note-dir { color: rgba(255, 255, 255, .55); }
+.note-name {
+  display: block;
+  font-weight: 700;
+  font-size: .92rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-dir {
+  display: block;
+  margin-top: 2px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .68rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+/* ---- editor ---- */
+.app-editor {
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+}
+
+.editor-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line-light);
+  background: var(--white);
+}
+.editor-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .82rem;
+  color: var(--ink);
+  overflow: hidden;
+}
+.editor-history { flex: 0 0 auto; display: flex; gap: 2px; }
+.tool-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: .85rem;
+}
+.tool-btn:hover:not(:disabled) { border-color: var(--line-light); background: rgba(16, 19, 23, .05); }
+.tool-btn:disabled { color: var(--paper-3); cursor: default; }
+.editor-path span[data-current-path] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-path i { color: var(--muted); }
+.dirty-dot { color: var(--accent-2); font-size: 1.1rem; line-height: 1; }
+
+.editor-modes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.mode-btn {
+  border: 1px solid var(--line-light);
+  background: transparent;
+  color: var(--muted);
+  padding: 7px 12px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  cursor: pointer;
+}
+.mode-btn.is-active {
+  background: var(--ink);
+  color: var(--white);
+  border-color: var(--ink);
+}
+.editor-modes .button { min-height: 34px; padding: 6px 10px; margin-left: 6px; }
+
+/* The toolbar is a light surface, so its ghost buttons need dark ink instead of
+ * the header's white-on-dark treatment (otherwise they're invisible). */
+.editor-toolbar .button-ghost {
+  color: var(--ink);
+  border-color: var(--line-light);
+}
+.editor-toolbar .button-ghost:hover,
+.editor-toolbar .button-ghost:focus-visible {
+  color: var(--ink);
+  border-color: var(--ink);
+  background: rgba(16, 19, 23, .05);
+}
+.editor-toolbar .button-ghost.danger:hover,
+.editor-toolbar .button-ghost.danger:focus-visible {
+  color: #c0392b;
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, .07);
+}
+
+/* ---- insert (markdown) menu ---- */
+.insert-wrap { position: relative; }
+.insert-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 70;
+  min-width: 190px;
+  padding: 6px;
+  background: var(--white);
+  border: 1px solid var(--line-light);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.insert-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 9px 11px;
+  font: inherit;
+  font-size: .9rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+.insert-menu button:hover,
+.insert-menu button:focus-visible {
+  background: var(--ink);
+  color: var(--white);
+  outline: none;
+}
+.insert-menu button i { width: 16px; text-align: center; color: var(--muted); }
+.insert-menu button:hover i,
+.insert-menu button:focus-visible i { color: var(--accent); }
+.insert-sep { height: 1px; margin: 5px 4px; background: var(--line-light); }
+
+.editor-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.editor-body[data-view="edit"] { grid-template-columns: 1fr; }
+.editor-body[data-view="edit"] .editor-preview { display: none; }
+.editor-body[data-view="preview"] { grid-template-columns: 1fr; }
+.editor-body[data-view="preview"] .editor-textarea { display: none; }
+
+.editor-textarea {
+  border: 0;
+  border-radius: 0;
+  resize: none;
+  height: 100%;
+  width: 100%;
+  padding: 24px clamp(20px, 4vw, 48px);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Courier Prime", "IBM Plex Mono", monospace;
+  font-size: .98rem;
+  line-height: 1.7;
+  tab-size: 2;
+}
+.editor-textarea:focus-visible { outline: none; }
+
+.editor-preview {
+  height: 100%;
+  overflow-y: auto;
+  padding: 24px clamp(20px, 4vw, 48px);
+  border-left: 1px solid var(--line-light);
+  background: var(--white);
+}
+.editor-body[data-view="preview"] .editor-preview { border-left: 0; }
+
+/* ---- todo (checklist) mode ---- */
+.mode-btn-icon { font-size: .9rem; padding: 6px 10px; }
+
+.editor-todo {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+}
+.todo-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px clamp(12px, 3vw, 32px);
+  border-bottom: 1px solid var(--line-light);
+  background: var(--white);
+}
+.todo-count {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .72rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.todo-toolbar-actions { display: flex; gap: 4px; }
+.todo-mini {
+  border: 1px solid var(--line-light);
+  background: transparent;
+  color: var(--muted);
+  width: 32px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: .82rem;
+}
+.todo-mini:hover { color: var(--ink); border-color: var(--ink); }
+.todo-mini[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--accent);
+  border-color: var(--ink);
+}
+.todo-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px clamp(12px, 3vw, 32px);
+}
+.todo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--white);
+  border: 1px solid var(--line-light);
+  /* lets siblings glide to their new spot during a reorder (FLIP) */
+  transition: transform .18s cubic-bezier(.2, .7, .3, 1);
+}
+/* Collapse adjacent borders so there's no dead space between rows. */
+.todo-list > * + * { margin-top: -1px; }
+.todo-item.is-hidden { display: none; }
+.todo-item.dragging {
+  /* the held item tracks the finger instantly (no transition) and stands out */
+  transition: none;
+  position: relative;
+  z-index: 5;
+  border-color: var(--accent-2);
+  background: var(--white);
+  box-shadow: 0 14px 30px rgba(16, 19, 23, .3);
+  cursor: grabbing;
+  user-select: none;
+}
+.todo-item.dragging .todo-drag { cursor: grabbing; color: var(--accent-2); }
+
+/* Nesting: children are indented; parents read as a group header. */
+.todo-child { margin-left: 26px; }
+.todo-parent { background: var(--paper-2); cursor: pointer; }
+/* The text only takes its content width so the rest of the row is a click
+ * target for collapse/expand; the text itself stays an edit target. */
+.todo-parent .todo-text { font-weight: 700; flex: 0 1 auto; cursor: text; }
+
+/* Collapse chevron + remaining-count badge on parent rows. */
+.todo-collapse {
+  flex: 0 0 auto;
+  border: 0;
+  background: none;
+  padding: 4px 6px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: transform .15s ease;
+}
+.todo-collapse.collapsed { transform: rotate(-90deg); }
+.todo-badge {
+  flex: 0 0 auto;
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-2);
+  color: var(--ink);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .7rem;
+  font-weight: 700;
+  text-align: center;
+}
+.todo-badge.done { background: var(--paper-3); color: var(--muted); }
+
+/* Completed-overflow summary row ("N completed items"). */
+.todo-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 26px;
+  padding: 4px 10px;
+  background: var(--paper);
+  border: 1px solid var(--line-light);
+  color: var(--muted);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .76rem;
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+.todo-summary:hover { color: var(--ink); }
+.todo-summary i { transition: transform .15s ease; }
+.todo-summary.expanded i { transform: rotate(180deg); }
+
+/* Compact density — shrink rows so long lists need far less scrolling. */
+.editor-todo.compact .todo-scroll { padding: 8px clamp(10px, 2.5vw, 24px); }
+.editor-todo.compact .todo-item { padding: 2px 8px; gap: 8px; }
+.editor-todo.compact .todo-text { font-size: .9rem; }
+.editor-todo.compact .todo-check { width: 20px; height: 20px; }
+.editor-todo.compact .todo-child,
+.editor-todo.compact .todo-summary { margin-left: 20px; }
+.editor-todo.compact .todo-drag,
+.editor-todo.compact .todo-del,
+.editor-todo.compact .todo-collapse { padding: 2px 4px; }
+.todo-drag {
+  flex: 0 0 auto;
+  border: 0;
+  background: none;
+  padding: 4px;
+  color: var(--paper-3);
+  cursor: grab;
+  touch-action: none; /* the handle drives reorder, not scroll */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* While dragging, stop iOS from selecting/highlighting any row text. */
+.todo-list.dragging-active,
+.todo-list.dragging-active * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none;
+}
+.todo-drag:active { cursor: grabbing; }
+.todo-check {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--muted);
+  background: var(--white);
+  color: transparent;
+  font-size: .8rem;
+  cursor: pointer;
+}
+.todo-item.checked .todo-check {
+  background: var(--accent);
+  border-color: var(--accent-2);
+  color: var(--ink);
+}
+.todo-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  outline: none;
+  overflow-wrap: anywhere;
+}
+.todo-text:focus { box-shadow: inset 0 -1px 0 var(--accent-2); }
+.todo-item.checked .todo-text {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.todo-del {
+  flex: 0 0 auto;
+  border: 0;
+  background: none;
+  padding: 4px 6px;
+  color: var(--paper-3);
+  cursor: pointer;
+}
+.todo-del:hover, .todo-del:focus-visible { color: #c0392b; }
+.todo-empty { color: var(--muted); padding: 16px 4px; font-size: .92rem; }
+.todo-empty code {
+  background: var(--paper-2);
+  padding: .1em .35em;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .85em;
+}
+.todo-add {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  padding: 10px clamp(12px, 3vw, 32px);
+  border-top: 1px solid var(--line-light);
+  background: var(--white);
+}
+.todo-add input { background: var(--paper); }
+.todo-add .button { min-height: 42px; flex: 0 0 auto; }
+
+/* ---- empty state ---- */
+.app-empty {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 40px;
+  color: var(--muted);
+}
+.app-empty i {
+  font-size: 2.6rem;
+  color: var(--paper-3);
+  margin-bottom: 14px;
+}
+.app-empty h2 { color: var(--ink); margin-bottom: 10px; }
+.app-empty p { margin: 0 0 22px; max-width: 360px; }
+
+/* ---------------------------------------------------------------- *
+ *  Markdown preview
+ * ---------------------------------------------------------------- */
+.markdown-body { font-family: "Courier Prime", monospace; color: var(--ink); line-height: 1.65; }
+.markdown-body > :first-child { margin-top: 0; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3,
+.markdown-body h4, .markdown-body h5, .markdown-body h6 {
+  font-family: "Space Grotesk", Inter, sans-serif;
+  letter-spacing: -.02em;
+  line-height: 1.1;
+  margin: 1.6em 0 .5em;
+  text-transform: none;
+}
+.markdown-body h1 { font-size: 1.9rem; }
+.markdown-body h2 { font-size: 1.5rem; padding-bottom: .2em; border-bottom: 1px solid var(--line-light); }
+.markdown-body h3 { font-size: 1.2rem; }
+.markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body blockquote { margin: 0 0 1em; }
+.markdown-body a { color: var(--accent-2); text-decoration: underline; }
+.markdown-body code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .88em;
+  background: var(--paper-2);
+  padding: .15em .4em;
+  border-radius: var(--radius);
+}
+.markdown-body pre {
+  background: var(--ink);
+  color: var(--white);
+  padding: 16px 18px;
+  overflow-x: auto;
+  font-size: .85rem;
+}
+.markdown-body pre code { background: none; padding: 0; color: inherit; }
+.markdown-body blockquote {
+  border-left: 4px solid var(--accent-2);
+  padding-left: 16px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: normal;
+  line-height: inherit;
+}
+.markdown-body table { border-collapse: collapse; width: 100%; margin: 0 0 1em; }
+.markdown-body th, .markdown-body td { border: 1px solid var(--line-light); padding: 7px 11px; text-align: left; }
+.markdown-body th { background: var(--paper-2); }
+.markdown-body img { display: inline-block; }
+.markdown-body hr { border: 0; border-top: 1px solid var(--line-light); margin: 1.6em 0; }
+
+/* ---------------------------------------------------------------- *
+ *  Toasts
+ * ---------------------------------------------------------------- */
+.toast-stack {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(420px, calc(100vw - 36px));
+}
+.toast {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 11px;
+  align-items: start;
+  padding: 13px 14px;
+  background: var(--ink);
+  color: var(--white);
+  border: 1px solid var(--line-dark);
+  border-left-width: 3px;
+  box-shadow: var(--shadow);
+  animation: rise .25s ease;
+}
+.toast i { margin-top: 2px; }
+.toast-body { min-width: 0; }
+.toast-body p { margin: 0; font-size: .9rem; }
+.toast-body pre {
+  margin: 8px 0 0;
+  padding: 9px 10px;
+  background: rgba(255, 255, 255, .06);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .76rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.toast-close {
+  background: none;
+  border: 0;
+  color: rgba(255, 255, 255, .6);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.toast-close:hover { color: var(--white); }
+.toast-success { border-left-color: var(--accent); }
+.toast-success i { color: var(--accent); }
+.toast-error { border-left-color: #ff6b6b; }
+.toast-error i { color: #ff6b6b; }
+.toast-warn { border-left-color: #ffce54; }
+.toast-warn i { color: #ffce54; }
+.toast-info { border-left-color: rgba(255, 255, 255, .4); }
+
+/* ---------------------------------------------------------------- *
+ *  Responsive
+ * ---------------------------------------------------------------- */
+@media (max-width: 720px) {
+  /* Single column: the editor (or empty state) gets the full area, and the
+   * note browser becomes a slide-in drawer overlaid on top of it. */
+  .app-layout {
+    grid-template-columns: 1fr;
+    position: relative;
+  }
+  .app-editor, .app-empty {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .sidebar-toggle { display: inline-flex; }
+
+  .app-sidebar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: min(320px, 86vw);
+    z-index: 60;
+    max-height: none;
+    transform: translateX(-100%);
+    transition: transform .25s ease;
+    box-shadow: var(--shadow);
+  }
+  body.sidebar-open .app-sidebar { transform: translateX(0); }
+
+  .sidebar-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 55;
+    border: 0;
+    background: rgba(16, 19, 23, .5);
+    cursor: pointer;
+  }
+  body.sidebar-open .sidebar-backdrop { display: block; }
+
+  .editor-body[data-view="split"] { grid-template-columns: 1fr; }
+  .editor-body[data-view="split"] .editor-preview { display: none; }
+  .app-header-actions .btn-label { display: none; }
+  .git-pill { display: none; }
+  /* Split view is pointless on a narrow screen; reclaim the toolbar space. */
+  .mode-btn[data-mode="split"] { display: none; }
+  /* The filename is desktop-only — hide it so the undo/redo + mode controls fit. */
+  .editor-path { display: none; }
+  .editor-toolbar { gap: 8px; padding: 8px 10px; justify-content: flex-start; }
+  .editor-modes { margin-left: auto; }
+
+  /* ≥16px text-entry controls so iOS Safari doesn't auto-zoom on focus. */
+  .editor-textarea,
+  .sidebar-search input,
+  .todo-add input,
+  .repo-select select {
+    font-size: 16px;
+  }
+}

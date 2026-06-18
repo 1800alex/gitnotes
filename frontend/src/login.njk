@@ -1,0 +1,43 @@
+---
+layout: layouts/base.njk
+title: Sign in
+permalink: /login/
+bodyClass: auth-body section-dark
+---
+<main class="auth-shell">
+  <div class="auth-grid">
+    <div class="auth-brand">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>
+          <strong>{{ site.name }}</strong>
+          <em>{{ site.tagline }}</em>
+        </span>
+      </a>
+      <p class="eyebrow">Secure access</p>
+      <h1>Your notes, version&nbsp;controlled.</h1>
+      <p class="lead">A private markdown notebook backed by git. Sign in to read, write, and sync your repository.</p>
+    </div>
+
+    <div class="auth-panel">
+      <form class="auth-form" data-login-form>
+        <p class="eyebrow">Sign in</p>
+        <label for="username">Username
+          <input id="username" name="username" type="text" autocomplete="username"
+            autocapitalize="none" autocorrect="off" spellcheck="false" required autofocus>
+        </label>
+        <label for="password">Password
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="button button-primary" type="submit" data-submit>
+          <i class="fa-solid fa-right-to-bracket"></i> Sign in
+        </button>
+        <p class="auth-error" data-error hidden></p>
+      </form>
+    </div>
+  </div>
+</main>
+{% block scripts %}
+<script src="/assets/js/api.js?v={{ version }}"></script>
+<script src="/assets/js/login.js?v={{ version }}"></script>
+{% endblock %}
