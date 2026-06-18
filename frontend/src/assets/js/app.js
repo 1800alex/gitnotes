@@ -264,6 +264,16 @@
         a.rel = "noopener noreferrer";
       }
     });
+    // Syntax-highlight fenced code blocks.
+    if (window.hljs) {
+      preview.querySelectorAll("pre code").forEach((el) => {
+        try {
+          window.hljs.highlightElement(el);
+        } catch (_) {
+          /* unknown language / already highlighted — ignore */
+        }
+      });
+    }
   }
 
   function findAnchor(id) {

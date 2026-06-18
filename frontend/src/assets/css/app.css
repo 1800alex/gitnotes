@@ -816,6 +816,9 @@ html.app-root {
   font-size: .85rem;
 }
 .markdown-body pre code { background: none; padding: 0; color: inherit; }
+/* highlight.js theme paints the tokens; let our <pre> own the background and
+ * padding so code blocks stay visually consistent with the rest of the UI. */
+.markdown-body pre code.hljs { background: transparent; padding: 0; }
 .markdown-body blockquote {
   border-left: 4px solid var(--accent-2);
   padding-left: 16px;

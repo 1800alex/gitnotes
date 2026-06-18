@@ -12,6 +12,9 @@ export default function (eleventyConfig) {
       "assets/fontawesome/webfonts",
     // Vendored markdown renderer for client-side preview (no CDN dependency).
     "node_modules/marked/marked.min.js": "assets/js/marked.min.js",
+    // Syntax highlighting for code blocks (common-languages bundle + dark theme).
+    "node_modules/@highlightjs/cdn-assets/highlight.min.js": "assets/js/highlight.min.js",
+    "node_modules/@highlightjs/cdn-assets/styles/github-dark.min.css": "assets/css/highlight.css",
   });
 
   eleventyConfig.addFilter("year", () => new Date().getFullYear());
