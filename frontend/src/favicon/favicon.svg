@@ -10,16 +10,17 @@
 </g>
 <g >
 <g transform="translate(39.322,39.322) scale(0.84640)" >
-<g clip-path="url(#icon7b410bbd6e1d338cc1e0122e353a5e0a)" >
-<clipPath id="icon7b410bbd6e1d338cc1e0122e353a5e0a" ><rect x="0" y="0" width="512" height="512" />
+<g clip-path="url(#icon690437d48d8ac5ec72b37bb30f3791a5)" >
+<clipPath id="icon690437d48d8ac5ec72b37bb30f3791a5" ><rect x="0" y="0" width="512" height="512" />
 </clipPath>
 
-  <g xmlns="http://www.w3.org/2000/svg" fill="none" stroke="#d5ff42" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
-    <path xmlns="http://www.w3.org/2000/svg" d="M144 112 Q144 96 160 96 H312 L384 168 V400 Q384 416 368 416 H160 Q144 416 144 400 Z"></path>
-    <path xmlns="http://www.w3.org/2000/svg" d="M312 96 V160 Q312 168 320 168 H384"></path>
-    <path xmlns="http://www.w3.org/2000/svg" d="M188 232 H312"></path>
-    <path xmlns="http://www.w3.org/2000/svg" d="M188 288 H344"></path>
-    <path xmlns="http://www.w3.org/2000/svg" d="M188 344 H300"></path>
+  <defs xmlns="http://www.w3.org/2000/svg" id="defs5"></defs>
+  <g xmlns="http://www.w3.org/2000/svg" fill="none" stroke="#d5ff42" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" id="g5" transform="matrix(1.2823496,0,0,1.2823496,-82.540294,-72.281498)">
+    <path xmlns="http://www.w3.org/2000/svg" d="m 144,112 q 0,-16 16,-16 h 152 l 72,72 v 232 q 0,16 -16,16 H 160 q -16,0 -16,-16 z" id="path1"></path>
+    <path xmlns="http://www.w3.org/2000/svg" d="m 312,96 v 64 q 0,8 8,8 h 64" id="path2"></path>
+    <path xmlns="http://www.w3.org/2000/svg" d="M 188,232 H 312" id="path3"></path>
+    <path xmlns="http://www.w3.org/2000/svg" d="M 188,288 H 344" id="path4"></path>
+    <path xmlns="http://www.w3.org/2000/svg" d="M 188,344 H 300" id="path5"></path>
   </g>
 </g>
 </g>
