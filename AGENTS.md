@@ -56,10 +56,10 @@ specialized UI layered over ordinary markdown.
 ## Typed notes & the "mode" pattern
 
 A note declares its type via YAML front-matter (`type: planner|recipe|mealplan|
-meeting`) or by folder (`planner/`, `recipes/`, `meal-plans/`, `meetings/`). Opening
-a typed note auto-selects its **mode** (view); Edit/Split/Preview always show the raw
-markdown. Modes: `edit`, `split`, `preview`, `todo` (checklist), plus the typed
-`planner`, `recipe`, `mealplan`, `meeting`.
+meeting|routines`) or by folder (`planner/`, `recipes/`, `meal-plans/`, `meetings/`,
+`routines/`). Opening a typed note auto-selects its **mode** (view); Edit/Split/Preview
+always show the raw markdown. Modes: `edit`, `split`, `preview`, `todo` (checklist),
+plus the typed `planner`, `recipe`, `mealplan`, `meeting`, `routines`.
 
 **To add a new typed view**, touch these (grep an existing one, e.g. `planner`, as a
 template):
@@ -77,10 +77,19 @@ template):
 **Shared token grammar** for task/action lines (keep client `parseAction` and the Go
 `parseActionTokens` in sync — the Agenda relies on them agreeing):
 
-```
+```text
 - [ ] 09:00 Draft the doc due:2026-08-10 @alex #tag !
        time              due-date       owner tag  important
+- [ ] Take out the trash every:tue                 # recurring (weekly on Tue)
+- [ ] Add salt to softener every:6w since:2026-08-01  # every 6 weeks, phased from since
 ```
+
+A `due:` is a **fixed** date; an `every:` makes the item **recurring** and the Agenda
+resolves its *next occurrence* on/after today (`since:` phases interval recurrences;
+weekdays ignore it). Recurrence specs: `mon…sun`, `Nd/Nw/Nm/Ny`, and friendly aliases
+(`daily/weekly/biweekly/monthly/quarterly/yearly`). Recurrence is **pure display** —
+chores never "complete"; checking one pauses it. The parse/next-occurrence math lives
+in `core.js` (`parseRecurrence`, `nextOccurrence`) and is mirrored 1:1 in `notes.go`.
 
 ## Build / run / dev
 
@@ -112,9 +121,10 @@ integration/run.sh tests/planner.spec.js --headed   # args pass through to playw
 ```
 
 There is also a **fast unit layer** (`make test`, no Docker): `backend/*_test.go`
-covers the action grammar, agenda scan, and 3-way merge; `frontend/test/core.test.js`
-covers the dates + action grammar in `core.js`. The action-grammar cases are kept
-identical on both sides to guard client/server parity.
+covers the action grammar, agenda scan, recurrence/next-occurrence math, and 3-way
+merge; `frontend/test/core.test.js` covers the dates, action grammar, and recurrence
+in `core.js`. The action-grammar and recurrence cases are kept identical on both sides
+to guard client/server parity (same case tables, same expected next-occurrence dates).
 
 - Fixtures come from `testdata/seed.sh`, which writes **date-relative** content (the
   planner/meal-plan land on the current ISO week; meeting follow-ups are due this

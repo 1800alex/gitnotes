@@ -84,6 +84,7 @@ everything so you can exercise every view:
 - [This week's planner](planner/$THIS_WEEK.md) — try **Planner mode**.
 - Recipes under \`recipes/\` and a [meal plan](meal-plans/$THIS_WEEK.md).
 - [Meeting notes](meetings/$TODAY-team-standup.md) with follow-ups.
+- [Household routines](routines/home.md) — recurring chores in **Routines mode**.
 
 Edit anything — every save is a git commit.
 EOF
@@ -366,6 +367,24 @@ project: Integrations
 EOF
 
 # ---------------------------------------------------------------------------
+# Routines (type: routines) — recurring chores; each resolves to a next
+# occurrence in the Agenda. `since:` anchors interval chores at today so the
+# fixture is date-stable (the 6-week chore is due "today").
+# ---------------------------------------------------------------------------
+note "routines/home.md" <<EOF
+---
+type: routines
+---
+# Household routines
+
+- [ ] Take out the trash every:tue
+- [ ] Water the plants every:3d since:$TODAY
+- [ ] Add salt to the water softener every:6w since:$TODAY
+- [ ] Replace the HVAC filter every:3m since:$TODAY
+- [x] Rotate the car tires every:6m since:$TODAY
+EOF
+
+# ---------------------------------------------------------------------------
 # Commit (two commits so there's a little history for the git pill)
 # ---------------------------------------------------------------------------
 cd "$REPO"
@@ -377,8 +396,8 @@ git config commit.gpgsign false
 git add welcome.md notes checklists
 git commit -qm "Seed: notes & checklists"
 
-git add planner recipes meal-plans meetings
-git commit -qm "Seed: planner, recipes, meal plan & meetings"
+git add planner recipes meal-plans meetings routines
+git commit -qm "Seed: planner, recipes, meal plan, meetings & routines"
 
 COUNT=$(git ls-files | wc -l | tr -d ' ')
 echo "✔ Seeded $COUNT files into $REPO (ISO week $THIS_WEEK)"

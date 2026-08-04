@@ -12,6 +12,12 @@ A small, self-hosted **markdown notebook** with a git-backed store.
   pushed. A **Refresh** button fetches and integrates upstream changes.
 - **Auth** — usernames + bcrypt password hashes in a flat JSON file. Login
   returns a long-lived JWT that the browser keeps in `localStorage`.
+- **Typed views** — plain notes still edit as markdown, but notes in `planner/`,
+  `recipes/`, `meal-plans/`, `meetings/`, or `routines/` (or with a `type:`
+  front-matter) light up as a weekly planner, recipe card, meal-plan grid,
+  meeting-notes list, or **recurring-chores** view. A passive **Agenda** scans
+  every note for `due:` deadlines and `every:` recurring chores and shows what's
+  next — no scheduler, you open it when you want it.
 
 ```
  browser ──JWT──▶ Go backend ──exec──▶ git ──ssh──▶ your remote

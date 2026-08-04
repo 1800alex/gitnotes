@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func eqStrs(a, b []string) bool {
 	if len(a) != len(b) {
@@ -57,8 +60,9 @@ func TestScanDueLines(t *testing.T) {
 		"prose line\n" +
 		"```\n- [ ] fenced due:2026-01-03\n```\n" + // inside code fence → skipped
 		"- [ ] another due:2026-01-04 !\n"
+	today := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
 	var out []AgendaItem
-	scanDueLines("planner/x.md", content, &out)
+	scanDueLines("planner/x.md", content, today, &out)
 
 	if len(out) != 2 {
 		t.Fatalf("got %d items, want 2: %+v", len(out), out)
@@ -68,5 +72,65 @@ func TestScanDueLines(t *testing.T) {
 	}
 	if out[1].Due != "2026-01-04" || !out[1].Important {
 		t.Errorf("item1 = %+v", out[1])
+	}
+}
+
+// A recurring line has its next occurrence resolved relative to today, is
+// flagged Recurring, and never lands in the past (pure-display semantics).
+func TestScanDueLinesRecurring(t *testing.T) {
+	// 2026-08-04 is a Tuesday.
+	today := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	content := "# Chores\n" +
+		"- [ ] Take out the trash every:tue\n" +          // today is Tue → due today
+		"- [ ] Water plants every:wed\n" +                // next Wed → tomorrow
+		"- [ ] Add salt to softener every:6w since:2026-07-01\n" + // 2026-07-01 + 6w = 08-12
+		"- [ ] Not a chore every:sometimes\n" +           // invalid spec → skipped (no due)
+		"- [x] Done chore every:mon\n"                     // completed → skipped
+	var out []AgendaItem
+	scanDueLines("routines/home.md", content, today, &out)
+
+	if len(out) != 3 {
+		t.Fatalf("got %d items, want 3: %+v", len(out), out)
+	}
+	byText := map[string]AgendaItem{}
+	for _, it := range out {
+		byText[it.Text] = it
+	}
+	if it := byText["Take out the trash"]; it.Due != "2026-08-04" || !it.Recurring || it.Every != "tue" {
+		t.Errorf("trash = %+v", it)
+	}
+	if it := byText["Water plants"]; it.Due != "2026-08-05" {
+		t.Errorf("plants = %+v", it)
+	}
+	if it := byText["Add salt to softener"]; it.Due != "2026-08-12" || it.Since != "2026-07-01" || it.Every != "6w" {
+		t.Errorf("salt = %+v", it)
+	}
+}
+
+// nextOccurrence math, kept in lock-step with core.test.js.
+func TestNextOccurrence(t *testing.T) {
+	today := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC) // Tuesday
+	cases := []struct {
+		spec  string
+		since string
+		want  string
+	}{
+		{"tue", "", "2026-08-04"},              // today is Tuesday
+		{"mon", "", "2026-08-10"},              // next Monday
+		{"sun", "", "2026-08-09"},              // upcoming Sunday
+		{"1d", "", "2026-08-04"},               // no anchor → today
+		{"6w", "2026-07-01", "2026-08-12"},     // 07-01 + 6 weeks
+		{"2w", "2026-08-20", "2026-08-20"},     // future anchor → itself
+		{"1m", "2026-01-31", "2026-08-31"},     // month clamp path lands on 08-31
+		{"1y", "2020-08-04", "2026-08-04"},     // yearly rolled forward
+	}
+	for _, c := range cases {
+		rec, ok := parseRecurrence(c.spec)
+		if !ok {
+			t.Fatalf("parseRecurrence(%q) failed", c.spec)
+		}
+		if got := nextOccurrence(rec, c.since, today); got != c.want {
+			t.Errorf("nextOccurrence(%q, %q) = %q, want %q", c.spec, c.since, got, c.want)
+		}
 	}
 }

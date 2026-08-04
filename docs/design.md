@@ -33,7 +33,7 @@ today.
 
 ```markdown
 ---
-type: planner        # planner | recipe | mealplan | meeting
+type: planner        # planner | recipe | mealplan | meeting | routines
 week: 2026-W31        # type-specific fields
 ---
 # body is normal markdown
@@ -48,6 +48,7 @@ files dropped into `planner/`, `recipes/`, etc. light up automatically:
 | `recipe`  | `recipes/*.md`                  | Recipe card + ingredients  |
 | `mealplan`| `meal-plans/2026-W31.md`        | Week × meal grid           |
 | `meeting` | `meetings/2026-08-03-standup.md`| Meeting note + action items |
+| `routines`| `routines/home.md`              | Recurring chores + next occurrence |
 
 Opening a typed note auto-selects its view; you can still drop to Edit/Preview
 to see the raw markdown. Nothing about a typed note is un-editable by hand — the
@@ -68,10 +69,14 @@ share a small, greppable, still-valid-markdown grammar:
 - **`@name`** — an owner.
 - **`#tag`** — a free tag.
 - **trailing `!`** — important / starred.
+- **`every:<spec>`** — a **recurrence** (weekday `mon…sun`, interval `Nd/Nw/Nm/Ny`,
+  or an alias like `weekly`/`monthly`). The item has no fixed date; the Agenda
+  resolves its next occurrence on/after today.
+- **`since:YYYY-MM-DD`** — anchors an interval recurrence's phase (weekdays ignore it).
 
 All optional; any `- [ ]` line is still a plain checklist item and renders fine
 in Preview and in the existing Checklist mode. The planner slice (below) uses
-`HH:MM` + `!`; meetings add `due:` + `@`.
+`HH:MM` + `!`; meetings add `due:` + `@`; routines add `every:` + `since:`.
 
 ## 3. The Agenda (passive)  ✅ implemented
 
@@ -161,6 +166,46 @@ opens or creates the current week.*
   items are exactly what the Agenda aggregates.
 
   *Reachable via New → Meeting (creates `meetings/<today>-meeting.md`).*
+
+### D. Routines (recurring chores)  ✅ implemented (fourth slice)
+
+- `routines/home.md`, `type: routines`. Body is a checklist whose items carry an
+  `every:<spec>` recurrence (and optional `since:` anchor) — e.g.
+  `- [ ] Take out the trash every:tue`, `- [ ] Add salt to the water softener
+  every:6w since:2026-08-01`. There's no fixed `due:`; the item recurs.
+
+  ```markdown
+  ---
+  type: routines
+  ---
+  # Household routines
+  - [ ] Take out the trash every:tue
+  - [ ] Add salt to the water softener every:6w since:2026-08-01
+  ```
+
+- The **Routines view** lists each chore with its rule (a tappable schedule chip)
+  and its **next occurrence** ("next: Aug 11 (Tue)" / "today" / "tomorrow"), plus a
+  reusable **recurrence picker** (presets + weekdays + custom "every N units") for
+  adding and rescheduling. Inline rename, delete, and a **pause** toggle round it
+  out. Pause simply checks the box (`[x]`) — a paused chore drops out of the Agenda
+  until resumed.
+
+- **Pure display, no completion.** Recurrence is a *rule*, not a task instance:
+  the Agenda always shows the next occurrence on/after today, so a recurring chore
+  never lands in Overdue and never needs to be "checked to advance". This keeps the
+  model trivial for a plain-markdown/git store — no per-occurrence bookkeeping, no
+  history rewriting; the line is stable and every edit is one ordinary commit.
+
+- **Cross-note.** `every:` is part of the shared grammar, so any checklist (not just
+  a routines note) can hold a recurring item and it shows up in the Agenda with a ↻
+  badge. The Routines view is just the dedicated place to *manage* them.
+
+- Next-occurrence math (weekday delta, interval stepping, clamped month arithmetic)
+  lives in `core.js` `nextOccurrence()` and is mirrored exactly in Go
+  (`notes.go`), unit-tested with identical case tables so the server-side Agenda
+  and the client agree.
+
+  *Reachable via New → Routines (creates/opens `routines/home.md`).*
 
 ---
 

@@ -27,6 +27,7 @@ bodyClass: app-body
         <button type="button" role="menuitem" data-new-kind="mealplan"><i class="fa-solid fa-utensils"></i> Meal plan</button>
         <button type="button" role="menuitem" data-new-kind="recipe"><i class="fa-solid fa-book-open"></i> Recipe</button>
         <button type="button" role="menuitem" data-new-kind="meeting"><i class="fa-solid fa-users"></i> Meeting</button>
+        <button type="button" role="menuitem" data-new-kind="routines"><i class="fa-solid fa-rotate"></i> Routines</button>
       </div>
     </div>
     <button class="button button-ghost" type="button" data-agenda-open title="Agenda — what's due" aria-label="Agenda">
@@ -121,6 +122,8 @@ bodyClass: app-body
           title="Meal plan mode" aria-label="Meal plan mode" hidden><i class="fa-solid fa-bowl-food"></i></button>
         <button class="mode-btn mode-btn-icon" data-mode="meeting" type="button" data-meeting-mode-btn
           title="Meeting mode" aria-label="Meeting mode" hidden><i class="fa-solid fa-users"></i></button>
+        <button class="mode-btn mode-btn-icon" data-mode="routines" type="button" data-routines-mode-btn
+          title="Routines mode" aria-label="Routines mode" hidden><i class="fa-solid fa-rotate"></i></button>
         <button class="mode-btn mode-btn-icon" data-mode="todo" type="button"
           title="Checklist mode" aria-label="Checklist mode"><i class="fa-solid fa-list-check"></i></button>
         <button class="mode-btn is-active" data-mode="edit" type="button">Edit</button>
@@ -202,6 +205,27 @@ bodyClass: app-body
 
     <div class="editor-meeting" data-meeting-pane hidden>
       <div class="meeting-scroll" data-meeting-body></div>
+    </div>
+
+    <div class="editor-routines" data-routines-pane hidden>
+      <div class="todo-toolbar">
+        <span class="todo-count" data-routines-count></span>
+      </div>
+      <div class="routines-scroll">
+        <ul class="routines-list" data-routines-list></ul>
+        <p class="todo-empty" data-routines-empty hidden>
+          No recurring chores yet. Add one below — e.g. <code>Take out the trash</code>
+          repeating <em>weekly</em>. Each chore shows up in the Agenda on its next due day.
+        </p>
+      </div>
+      <form class="routines-add" data-routines-add>
+        <input type="text" data-routines-input placeholder="Add a chore…" aria-label="Add a recurring chore"
+          autocomplete="off">
+        <span class="routines-picker" data-routines-picker></span>
+        <button class="button button-primary" type="submit" aria-label="Add chore">
+          <i class="fa-solid fa-plus"></i>
+        </button>
+      </form>
     </div>
   </main>
 

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -459,20 +460,128 @@ func (n *Notes) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 type AgendaItem struct {
 	Path      string   `json:"path"`
 	Text      string   `json:"text"`
-	Due       string   `json:"due"` // YYYY-MM-DD
+	Due       string   `json:"due"` // YYYY-MM-DD (for recurring items, the resolved next occurrence)
 	Owners    []string `json:"owners"`
 	Important bool     `json:"important"`
+	Every     string   `json:"every,omitempty"` // canonical recurrence spec, e.g. "tue" / "6w"
+	Since     string   `json:"since,omitempty"` // YYYY-MM-DD anchor for interval recurrences
+	Recurring bool     `json:"recurring,omitempty"`
 }
 
 // Shared action-item grammar (must match the frontend's parseAction):
 //
-//	- [ ] text due:YYYY-MM-DD @owner !
+//	- [ ] text due:YYYY-MM-DD every:<spec> since:YYYY-MM-DD @owner !
 var (
 	openTaskRe = regexp.MustCompile(`^\s*[-*+]\s+\[ \]\s+(.*)$`)
 	dueRe      = regexp.MustCompile(`(?:^|\s)due:(\d{4}-\d{2}-\d{2})(?:\s|$)`)
+	sinceRe    = regexp.MustCompile(`(?:^|\s)since:(\d{4}-\d{2}-\d{2})(?:\s|$)`)
+	everyRe    = regexp.MustCompile(`(?:^|\s)every:([^\s]+)`)
 	ownerRe    = regexp.MustCompile(`(^|\s)@([^\s]+)`)
 	fenceRe    = regexp.MustCompile("^\\s*```")
 )
+
+// ---- recurrence (must match core.js parseRecurrence/nextOccurrence) ----
+// dow is 0=Sun…6=Sat (matches time.Weekday and JS Date.getUTCDay).
+
+type recurrence struct {
+	kind string // "weekday" | "interval"
+	dow  int
+	n    int
+	unit string // d|w|m|y
+}
+
+var weekdayNames = []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
+var weekdayAliases = map[string]int{
+	"sun": 0, "sunday": 0, "mon": 1, "monday": 1, "tue": 2, "tues": 2, "tuesday": 2,
+	"wed": 3, "weds": 3, "wednesday": 3, "thu": 4, "thur": 4, "thurs": 4, "thursday": 4,
+	"fri": 5, "friday": 5, "sat": 6, "saturday": 6,
+}
+var recurAliases = map[string]string{
+	"daily": "1d", "weekly": "1w", "biweekly": "2w", "fortnightly": "2w",
+	"monthly": "1m", "quarterly": "3m", "yearly": "1y", "annually": "1y",
+	"day": "1d", "week": "1w", "month": "1m", "year": "1y",
+}
+var intervalRe = regexp.MustCompile(`^(\d+)([dwmy])$`)
+
+func parseRecurrence(spec string) (recurrence, bool) {
+	s := strings.ToLower(strings.TrimSpace(spec))
+	if s == "" {
+		return recurrence{}, false
+	}
+	if a, ok := recurAliases[s]; ok {
+		s = a
+	}
+	if d, ok := weekdayAliases[s]; ok {
+		return recurrence{kind: "weekday", dow: d}, true
+	}
+	if m := intervalRe.FindStringSubmatch(s); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		if n >= 1 {
+			return recurrence{kind: "interval", n: n, unit: m[2]}, true
+		}
+	}
+	return recurrence{}, false
+}
+
+func recurrenceCanonical(r recurrence) string {
+	if r.kind == "weekday" {
+		return weekdayNames[r.dow]
+	}
+	return strconv.Itoa(r.n) + r.unit
+}
+
+// nextOccurrence returns the next YYYY-MM-DD on or after today. `since` phases
+// interval recurrences (ignored for weekdays); an absent since anchors at today.
+func nextOccurrence(r recurrence, since string, today time.Time) string {
+	t := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+	if r.kind == "weekday" {
+		delta := (r.dow - int(t.Weekday()) + 7) % 7
+		return t.AddDate(0, 0, delta).Format("2006-01-02")
+	}
+	anchor := t
+	if a, err := time.ParseInLocation("2006-01-02", since, time.UTC); err == nil {
+		anchor = a
+	}
+	if !anchor.Before(t) {
+		return anchor.Format("2006-01-02")
+	}
+	if r.unit == "d" || r.unit == "w" {
+		period := r.n
+		if r.unit == "w" {
+			period = r.n * 7
+		}
+		diff := int(t.Sub(anchor).Hours()/24 + 0.5)
+		k := (diff + period - 1) / period // ceil
+		return anchor.AddDate(0, 0, k*period).Format("2006-01-02")
+	}
+	// Month/year: step by whole months, clamping the day to the target month.
+	// Compute each candidate from the anchor (not iteratively) so the clamp
+	// doesn't compound — e.g. a Jan-31 monthly chore keeps landing on the 31st.
+	step := r.n
+	if r.unit == "y" {
+		step = r.n * 12
+	}
+	for k := 1; k < 10000; k++ {
+		cur := addMonthsClamped(anchor, k*step)
+		if !cur.Before(t) {
+			return cur.Format("2006-01-02")
+		}
+	}
+	return anchor.Format("2006-01-02")
+}
+
+func addMonthsClamped(d time.Time, months int) time.Time {
+	total := int(d.Month()) - 1 + months
+	year := d.Year() + total/12
+	month0 := ((total % 12) + 12) % 12
+	first := time.Date(year, time.Month(month0+1), 1, 0, 0, 0, 0, time.UTC)
+	dim := first.AddDate(0, 1, -1).Day()
+	day := d.Day()
+	if day > dim {
+		day = dim
+	}
+	return time.Date(year, time.Month(month0+1), day, 0, 0, 0, 0, time.UTC)
+}
 
 // parseActionTokens pulls due:/@owner/! tokens out of an item's text, matching
 // the frontend so server- and client-side scans agree.
@@ -488,6 +597,20 @@ func parseActionTokens(raw string) AgendaItem {
 		loc := dueRe.FindStringIndex(text)
 		text = strings.TrimSpace(text[:loc[0]] + " " + text[loc[1]:])
 	}
+	if m := sinceRe.FindStringSubmatch(text); m != nil {
+		item.Since = m[1]
+		loc := sinceRe.FindStringIndex(text)
+		text = strings.TrimSpace(text[:loc[0]] + " " + text[loc[1]:])
+	}
+	// `every:` is consumed only when it names a valid recurrence, so stray
+	// "every:other" prose survives untouched.
+	if m := everyRe.FindStringSubmatch(text); m != nil {
+		if rec, ok := parseRecurrence(m[1]); ok {
+			item.Every = recurrenceCanonical(rec)
+			loc := everyRe.FindStringIndex(text)
+			text = strings.TrimSpace(text[:loc[0]] + " " + text[loc[1]:])
+		}
+	}
 	for _, om := range ownerRe.FindAllStringSubmatch(text, -1) {
 		item.Owners = append(item.Owners, om[2])
 	}
@@ -496,9 +619,10 @@ func parseActionTokens(raw string) AgendaItem {
 	return item
 }
 
-// scanDueLines appends every open, due-dated checklist item in one note's
-// content, skipping fenced code blocks.
-func scanDueLines(relPath, content string, out *[]AgendaItem) {
+// scanDueLines appends every open, due-dated or recurring checklist item in one
+// note's content, skipping fenced code blocks. Recurring items (an `every:`
+// token) have their Due resolved to the next occurrence on or after today.
+func scanDueLines(relPath, content string, today time.Time, out *[]AgendaItem) {
 	inFence := false
 	for _, line := range strings.Split(content, "\n") {
 		if fenceRe.MatchString(line) {
@@ -509,10 +633,19 @@ func scanDueLines(relPath, content string, out *[]AgendaItem) {
 			continue
 		}
 		m := openTaskRe.FindStringSubmatch(line)
-		if m == nil || !dueRe.MatchString(m[1]) {
+		if m == nil {
+			continue
+		}
+		if !dueRe.MatchString(m[1]) && !everyRe.MatchString(m[1]) {
 			continue
 		}
 		item := parseActionTokens(m[1])
+		if item.Every != "" {
+			if rec, ok := parseRecurrence(item.Every); ok {
+				item.Due = nextOccurrence(rec, item.Since, today)
+				item.Recurring = true
+			}
+		}
 		if item.Due == "" {
 			continue
 		}
@@ -526,6 +659,7 @@ func scanDueLines(relPath, content string, out *[]AgendaItem) {
 // client's per-note scan — one request instead of N.
 func (n *Notes) scanAgenda(repoDir string) ([]AgendaItem, error) {
 	out := []AgendaItem{}
+	today := time.Now()
 	err := filepath.WalkDir(repoDir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -545,7 +679,7 @@ func (n *Notes) scanAgenda(repoDir string) ([]AgendaItem, error) {
 			return nil // skip unreadable files rather than failing the whole scan
 		}
 		rel, _ := filepath.Rel(repoDir, p)
-		scanDueLines(filepath.ToSlash(rel), string(data), &out)
+		scanDueLines(filepath.ToSlash(rel), string(data), today, &out)
 		return nil
 	})
 	if err != nil {

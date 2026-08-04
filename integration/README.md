@@ -46,6 +46,7 @@ First run may need browser system libs once: `cd integration && npx playwright i
 | `planner.spec.js`           | day cards, check task → `[x]` persisted, add task            |
 | `recipes-mealplan.spec.js`  | recipe card + ingredient tick, meal-plan grid, **shopping-list generation** |
 | `meetings-agenda.spec.js`   | action items + due dates, add action, **agenda aggregation** + open source note |
+| `routines.spec.js`         | recurring-chore view (add/rename/reschedule/pause/delete) + **Agenda shows next occurrence** with a ↻ badge |
 | `autosave.spec.js`         | auto-sync **behavior**: on → persists after the delay; off → held until Save |
 | `deletion.spec.js`         | delete a note → gone from list + removed from git            |
 | `create.spec.js`           | New menu: Recipe/Meeting scaffolds persist, Note prompt opens editor |

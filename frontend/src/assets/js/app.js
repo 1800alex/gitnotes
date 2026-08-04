@@ -6,7 +6,10 @@
 
   // Pure, unit-tested helpers (dates + the shared action grammar) live in core.js
   // so they can be tested in Node and kept parity with the Go backend.
-  const { pad2, isoWeek, mondayOfISOWeek, addDays, normalizeTime, parseAction, serializeAction } = window.NotesCore;
+  const {
+    pad2, isoWeek, mondayOfISOWeek, addDays, normalizeTime, parseAction, serializeAction,
+    parseRecurrence, recurrenceCanonical, recurrenceLabel, nextOccurrence, WEEKDAYS,
+  } = window.NotesCore;
 
   // ---- element refs ----
   const $ = (sel) => document.querySelector(sel);
@@ -57,6 +60,14 @@
   const meetingPane = $("[data-meeting-pane]");
   const meetingBodyEl = $("[data-meeting-body]");
   const meetingModeBtn = $("[data-meeting-mode-btn]");
+  const routinesPane = $("[data-routines-pane]");
+  const routinesListEl = $("[data-routines-list]");
+  const routinesEmptyEl = $("[data-routines-empty]");
+  const routinesCountEl = $("[data-routines-count]");
+  const routinesForm = $("[data-routines-add]");
+  const routinesInput = $("[data-routines-input]");
+  const routinesPickerMount = $("[data-routines-picker]");
+  const routinesModeBtn = $("[data-routines-mode-btn]");
   const agendaPane = $("[data-agenda-pane]");
   const agendaListEl = $("[data-agenda-list]");
   const agendaSubEl = $("[data-agenda-sub]");
@@ -69,9 +80,9 @@
   let notes = [];
   let current = null; // { path, content }
   let dirty = false;
-  const MODES = ["edit", "split", "preview", "todo", "planner", "recipe", "mealplan", "meeting"];
+  const MODES = ["edit", "split", "preview", "todo", "planner", "recipe", "mealplan", "meeting", "routines"];
   // Views tied to a note's type — selected when such a note opens, not sticky.
-  const TYPED_MODES = ["planner", "recipe", "mealplan", "meeting"];
+  const TYPED_MODES = ["planner", "recipe", "mealplan", "meeting", "routines"];
   let mode = MODES.includes(localStorage.getItem("notes.mode"))
     ? localStorage.getItem("notes.mode")
     : "edit";
@@ -385,6 +396,7 @@
     recipe: () => recipePane,
     mealplan: () => mealplanPane,
     meeting: () => meetingPane,
+    routines: () => routinesPane,
   };
 
   function setMode(next) {
@@ -411,6 +423,7 @@
     else if (mode === "recipe") renderRecipe();
     else if (mode === "mealplan") renderMealplan();
     else if (mode === "meeting") renderMeeting();
+    else if (mode === "routines") renderRoutines();
   }
 
   function showEditor() {
@@ -728,6 +741,7 @@
     if (/^recipes\//.test(p)) return "recipe";
     if (/^meal-plans\//.test(p)) return "mealplan";
     if (/^meetings\//.test(p)) return "meeting";
+    if (/^routines\//.test(p)) return "routines";
     return "";
   }
 
@@ -737,6 +751,7 @@
     if (recipeModeBtn) recipeModeBtn.hidden = type !== "recipe";
     if (mealplanModeBtn) mealplanModeBtn.hidden = type !== "mealplan";
     if (meetingModeBtn) meetingModeBtn.hidden = type !== "meeting";
+    if (routinesModeBtn) routinesModeBtn.hidden = type !== "routines";
   }
 
   // Pick the right view when a note opens: a typed note gets its view; opening a
@@ -1259,6 +1274,7 @@
     if (t === "mealplan") { const w = weekFromPath(path) || isoWeek(now); return mealplanScaffold(w.year, w.week); }
     if (t === "recipe") return recipeScaffold(titleFromPath(path));
     if (t === "meeting") return meetingScaffold(path);
+    if (t === "routines") return routinesScaffold(titleFromPath(path));
     return "# " + path.replace(/\.md$/i, "").split("/").pop() + "\n\n";
   }
 
@@ -1551,6 +1567,276 @@
     renderList();
   }
 
+  // ---- routines (recurring chores) mode ----
+  // A routines note is a checklist whose items carry an `every:` recurrence (and
+  // an optional `since:` anchor). This view lists each chore with its rule and
+  // next occurrence and lets you add / rename / reschedule / pause / delete —
+  // rewriting the markdown so the Agenda (which resolves next occurrences) and
+  // Edit mode stay in sync. Recurrence is pure display: chores never "complete";
+  // checking one just *pauses* it (hides it from the Agenda until resumed).
+  const ROUTINE_RE = /^(\s*)([-*+])\s+\[([ xX])\]\s+(.*)$/;
+  const RECUR_PRESETS = [
+    ["1d", "Daily"], ["1w", "Weekly"], ["2w", "Every 2 weeks"],
+    ["1m", "Monthly"], ["3m", "Every 3 months"], ["1y", "Yearly"],
+    ["mon", "Every Monday"], ["tue", "Every Tuesday"], ["wed", "Every Wednesday"],
+    ["thu", "Every Thursday"], ["fri", "Every Friday"], ["sat", "Every Saturday"], ["sun", "Every Sunday"],
+  ];
+  const RECUR_UNITS = [["d", "days"], ["w", "weeks"], ["m", "months"], ["y", "years"]];
+  const WEEKDAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  let routinesModel = null; // { lines, items:[{pos, checked, text, every, since, owners, important}] }
+
+  function routinesScaffold(title) {
+    return "---\ntype: routines\n---\n\n# " + (title || "Routines") + "\n\n" +
+      "- [ ] Take out the trash every:tue\n" +
+      "- [ ] Add salt to the water softener every:6w since:" + todayStr() + "\n";
+  }
+
+  function parseRoutines(text) {
+    const lines = text.split("\n");
+    const items = [];
+    let inFence = false;
+    lines.forEach((line, i) => {
+      if (/^\s*```/.test(line)) { inFence = !inFence; return; }
+      if (inFence) return;
+      const m = ROUTINE_RE.exec(line);
+      if (!m) return;
+      const a = parseAction(m[4]);
+      if (!a.every) return; // only recurring lines belong to this view
+      items.push({ pos: i, checked: m[3].toLowerCase() === "x", text: a.text, every: a.every, since: a.since, owners: a.owners, important: a.important });
+    });
+    return { lines, items };
+  }
+
+  function serializeRoutine(it) {
+    return serializeAction({ checked: it.checked, text: it.text, every: it.every, since: it.since, owners: it.owners, important: it.important });
+  }
+
+  function commitRoutines(newText) {
+    textarea.value = newText;
+    setDirty(true);
+    if (mode === "split" || mode === "preview") renderPreview();
+    renderRoutines();
+    recordHistory();
+  }
+
+  function writeRoutineLine(idx) {
+    const it = routinesModel.items[idx];
+    if (!it) return;
+    routinesModel.lines[it.pos] = serializeRoutine(it);
+    commitRoutines(routinesModel.lines.join("\n"));
+  }
+
+  function addRoutine(text, canonical) {
+    text = (text || "").replace(/\s+/g, " ").trim();
+    const rec = parseRecurrence(canonical);
+    if (!text || !rec) return;
+    // Anchor interval chores at today so "every N …" is phased from creation;
+    // weekday chores don't need an anchor.
+    const since = rec.kind === "interval" ? " since:" + todayStr() : "";
+    const line = "- [ ] " + text + " every:" + canonical + since;
+    const { lines, items } = routinesModel;
+    const at = items.length ? items[items.length - 1].pos + 1 : lines.length;
+    lines.splice(at, 0, line);
+    commitRoutines(lines.join("\n"));
+  }
+
+  function setRoutineText(idx, text) {
+    const it = routinesModel.items[idx];
+    const v = (text || "").replace(/\s+/g, " ").trim();
+    if (!it || !v) { renderRoutines(); return; }
+    it.text = v;
+    writeRoutineLine(idx);
+  }
+
+  function setRoutineEvery(idx, canonical) {
+    const it = routinesModel.items[idx];
+    const rec = parseRecurrence(canonical);
+    if (!it || !rec) { renderRoutines(); return; }
+    it.every = canonical;
+    if (rec.kind === "interval") { if (!it.since) it.since = todayStr(); }
+    else it.since = ""; // weekday ignores the anchor
+    writeRoutineLine(idx);
+  }
+
+  function toggleRoutinePause(idx) {
+    const it = routinesModel.items[idx];
+    if (!it) return;
+    it.checked = !it.checked;
+    writeRoutineLine(idx);
+  }
+
+  function deleteRoutine(idx) {
+    const it = routinesModel.items[idx];
+    if (!it) return;
+    routinesModel.lines.splice(it.pos, 1);
+    commitRoutines(routinesModel.lines.join("\n"));
+  }
+
+  // A reusable recurrence picker: a preset <select> plus a custom "every N units"
+  // row. getValue() returns the canonical spec (e.g. "tue" / "6w").
+  function buildRecurrencePicker(current) {
+    const wrap = document.createElement("span");
+    wrap.className = "rec-picker";
+    const sel = document.createElement("select");
+    sel.className = "rec-preset";
+    sel.setAttribute("aria-label", "Repeat");
+    for (const [val, label] of RECUR_PRESETS) {
+      const o = document.createElement("option"); o.value = val; o.textContent = label; sel.appendChild(o);
+    }
+    const customOpt = document.createElement("option");
+    customOpt.value = "custom"; customOpt.textContent = "Every N…"; sel.appendChild(customOpt);
+
+    const customWrap = document.createElement("span");
+    customWrap.className = "rec-custom";
+    const num = document.createElement("input");
+    num.type = "number"; num.min = "1"; num.max = "999"; num.value = "6"; num.className = "rec-num"; num.setAttribute("aria-label", "Interval count");
+    const unit = document.createElement("select"); unit.className = "rec-unit"; unit.setAttribute("aria-label", "Interval unit");
+    for (const [val, label] of RECUR_UNITS) { const o = document.createElement("option"); o.value = val; o.textContent = label; unit.appendChild(o); }
+    customWrap.append(document.createTextNode("every "), num, unit);
+
+    const syncCustom = () => { customWrap.hidden = sel.value !== "custom"; };
+    sel.addEventListener("change", syncCustom);
+
+    const rec = current && parseRecurrence(current);
+    if (rec) {
+      const canon = recurrenceCanonical(rec);
+      if (RECUR_PRESETS.some(([v]) => v === canon)) sel.value = canon;
+      else if (rec.kind === "interval") { sel.value = "custom"; num.value = String(rec.n); unit.value = rec.unit; }
+    }
+    syncCustom();
+
+    wrap.append(sel, customWrap);
+    return {
+      el: wrap,
+      getValue() {
+        if (sel.value !== "custom") return sel.value;
+        const n = Math.max(1, Math.min(999, parseInt(num.value, 10) || 1));
+        return n + unit.value;
+      },
+    };
+  }
+
+  function fmtNextOccurrence(it, today) {
+    const rec = parseRecurrence(it.every);
+    if (!rec) return "—";
+    const iso = nextOccurrence(rec, it.since, today);
+    const d = new Date(iso + "T00:00:00Z");
+    const t = todayStr();
+    if (iso === t) return "today";
+    const tm = addDays(new Date(t + "T00:00:00Z"), 1);
+    const tomorrow = tm.getUTCFullYear() + "-" + pad2(tm.getUTCMonth() + 1) + "-" + pad2(tm.getUTCDate());
+    if (iso === tomorrow) return "tomorrow";
+    return fmtDue(iso) + " (" + WEEKDAY_ABBR[d.getUTCDay()] + ")";
+  }
+
+  function renderRoutines() {
+    routinesModel = parseRoutines(textarea.value);
+    const items = routinesModel.items;
+    routinesListEl.textContent = "";
+    if (routinesEmptyEl) routinesEmptyEl.hidden = items.length > 0;
+    if (routinesCountEl) routinesCountEl.textContent = items.length ? items.length + (items.length === 1 ? " chore" : " chores") : "";
+
+    const today = new Date();
+    items.forEach((it, idx) => routinesListEl.appendChild(buildRoutineRow(it, idx, today)));
+
+    // Build the add-form picker once (preserve its selection across re-renders).
+    if (routinesPickerMount && !routinesPickerMount._picker) {
+      const picker = buildRecurrencePicker("1w");
+      routinesPickerMount.textContent = "";
+      routinesPickerMount.appendChild(picker.el);
+      routinesPickerMount._picker = picker;
+    }
+  }
+
+  function buildRoutineRow(it, idx, today) {
+    const li = document.createElement("li");
+    li.className = "routine-item" + (it.checked ? " paused" : "") + (it.important ? " important" : "");
+
+    const pause = document.createElement("button");
+    pause.type = "button";
+    pause.className = "routine-pause";
+    pause.setAttribute("aria-pressed", String(it.checked));
+    pause.title = it.checked ? "Paused — tap to resume" : "Active — tap to pause";
+    pause.innerHTML = it.checked ? '<i class="fa-solid fa-circle-pause"></i>' : '<i class="fa-solid fa-rotate"></i>';
+    pause.addEventListener("click", () => toggleRoutinePause(idx));
+
+    const body = document.createElement("div");
+    body.className = "routine-body";
+    const text = document.createElement("span");
+    text.className = "routine-text";
+    text.textContent = it.text;
+    text.title = "Tap to rename";
+    text.addEventListener("click", () => beginRoutineEdit(text, idx));
+    const meta = document.createElement("span");
+    meta.className = "routine-meta";
+    meta.textContent = it.checked ? "paused" : "next: " + fmtNextOccurrence(it, today);
+    body.append(text, meta);
+
+    const rec = parseRecurrence(it.every);
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "routine-rec";
+    chip.title = "Change schedule";
+    chip.append(document.createTextNode(rec ? recurrenceLabel(rec) : it.every));
+    chip.addEventListener("click", () => beginRoutineRecEdit(li, idx, it.every));
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "routine-del";
+    del.title = "Delete chore";
+    del.innerHTML = '<i class="fa-solid fa-trash"></i>';
+    del.addEventListener("click", () => { if (confirm("Delete “" + it.text + "”?")) deleteRoutine(idx); });
+
+    li.append(pause, body, chip, del);
+    return li;
+  }
+
+  function beginRoutineEdit(span, idx) {
+    const it = routinesModel.items[idx];
+    if (!it) return;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "routine-edit";
+    input.value = it.text;
+    span.replaceWith(input);
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = (save) => {
+      if (done) return;
+      done = true;
+      if (save) setRoutineText(idx, input.value);
+      else renderRoutines();
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener("blur", () => finish(true));
+  }
+
+  function beginRoutineRecEdit(li, idx, current) {
+    if (li.querySelector(".routine-rec-edit")) return; // already editing
+    const editor = document.createElement("div");
+    editor.className = "routine-rec-edit";
+    const picker = buildRecurrencePicker(current);
+    const ok = document.createElement("button");
+    ok.type = "button"; ok.className = "todo-mini"; ok.textContent = "Save";
+    const cancel = document.createElement("button");
+    cancel.type = "button"; cancel.className = "todo-mini"; cancel.textContent = "Cancel";
+    ok.addEventListener("click", () => setRoutineEvery(idx, picker.getValue()));
+    cancel.addEventListener("click", () => renderRoutines());
+    editor.append(picker.el, ok, cancel);
+    li.appendChild(editor);
+    li.classList.add("editing");
+  }
+
+  function openRoutines() {
+    const path = "routines/home.md";
+    if (notes.some((n) => n.path === path)) { openNote(path); return; }
+    newTypedNote(path);
+  }
+
   // ---- agenda (passive) ----
   // A read-only dashboard: scan every note in the repo for open `- [ ]` items
   // carrying a `due:` date and group them Overdue / Today / This week / Later.
@@ -1574,16 +1860,22 @@
 
   function scanDueItems(path, content, out) {
     const lines = (content || "").split("\n");
+    const today = new Date();
     let inFence = false;
     for (const line of lines) {
       if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
       if (inFence) continue;
       const m = /^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/.exec(line);
       if (!m || m[1].toLowerCase() === "x") continue;
-      if (!/due:\d{4}-\d{2}-\d{2}/.test(m[2])) continue;
       const a = parseAction(m[2]);
-      if (!a.due) continue;
-      out.push({ path, text: a.text, due: a.due, owners: a.owners, important: a.important });
+      // Recurring items resolve to their next occurrence; fixed items need a due.
+      if (a.every) {
+        const rec = parseRecurrence(a.every);
+        if (!rec) continue;
+        out.push({ path, text: a.text, due: nextOccurrence(rec, a.since, today), owners: a.owners, important: a.important, recurring: true, every: a.every });
+      } else if (a.due) {
+        out.push({ path, text: a.text, due: a.due, owners: a.owners, important: a.important });
+      }
     }
   }
 
@@ -1643,7 +1935,7 @@
   function buildAgendaRow(it) {
     const row = document.createElement("button");
     row.type = "button";
-    row.className = "agenda-item" + (it.important ? " important" : "");
+    row.className = "agenda-item" + (it.important ? " important" : "") + (it.recurring ? " recurring" : "");
     row.title = "Open " + it.path;
 
     const due = document.createElement("span");
@@ -1654,10 +1946,22 @@
     main.className = "agenda-main";
     const txt = document.createElement("span");
     txt.className = "agenda-text";
-    txt.textContent = it.text;
+    if (it.recurring) {
+      const badge = document.createElement("i");
+      badge.className = "fa-solid fa-rotate agenda-recur";
+      const rec = it.every && parseRecurrence(it.every);
+      badge.title = rec ? recurrenceLabel(rec) : "recurring";
+      txt.append(badge, document.createTextNode(" " + it.text));
+    } else {
+      txt.textContent = it.text;
+    }
     const meta = document.createElement("span");
     meta.className = "agenda-meta";
-    meta.textContent = (it.owners.length ? it.owners.map((o) => "@" + o).join(" ") + " · " : "") + it.path;
+    const bits = [];
+    if (it.owners.length) bits.push(it.owners.map((o) => "@" + o).join(" "));
+    if (it.recurring) { const rec = it.every && parseRecurrence(it.every); if (rec) bits.push(recurrenceLabel(rec)); }
+    bits.push(it.path);
+    meta.textContent = bits.join(" · ");
     main.append(txt, meta);
 
     row.append(due, main);
@@ -2854,6 +3158,7 @@
     if (kind === "planner") { openPlannerWeek(w.year, w.week); return; }
     if (kind === "mealplan") { openMealplanWeek(w.year, w.week); return; }
     if (kind === "meeting") { openMeetingToday(); return; }
+    if (kind === "routines") { openRoutines(); return; }
     if (kind === "recipe") {
       let name = prompt("Recipe name:", "");
       if (name === null) return;
@@ -2864,6 +3169,17 @@
       newTypedNote(path);
     }
   });
+
+  // Routines: add a chore from the text input + the recurrence picker.
+  if (routinesForm) {
+    routinesForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const picker = routinesPickerMount && routinesPickerMount._picker;
+      addRoutine(routinesInput.value, picker ? picker.getValue() : "1w");
+      routinesInput.value = "";
+      routinesInput.focus();
+    });
+  }
 
   // Agenda (passive dashboard).
   $("[data-agenda-open]").addEventListener("click", openAgenda);
