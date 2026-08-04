@@ -1,0 +1,13 @@
+{
+  "_comment": "Throwaway TEST accounts for the seeded repo. Do NOT reuse these in a real deployment. Passwords: admin/admin, user/user. Neither lists `repos`, so both fall back to NOTES_REPO (the seeded repo) — which makes this one file work for both docker (NOTES_REPO=/data/repo) and `make demo` (NOTES_REPO=testdata/repo).",
+  "users": [
+    {
+      "username": "admin",
+      "passwordHash": "$2a$10$9LR5vKK7qHWCjNqwCEwV8O5fUJFE/s3JF3UOD.oDmgxLK6IwJT.FS"
+    },
+    {
+      "username": "user",
+      "passwordHash": "$2a$10$LfjEi8IVE7V0hiIyknQMT.mrdfLDz1p3AbqQ39GobJgzw8kfXj4qW"
+    }
+  ]
+}

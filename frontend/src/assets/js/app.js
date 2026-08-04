@@ -38,6 +38,11 @@
   const repoWrap = $("[data-repo-wrap]");
   const repoSelect = $("[data-repo-select]");
   const syncPill = $("[data-sync]");
+  const plannerPane = $("[data-planner-pane]");
+  const plannerDaysEl = $("[data-planner-days]");
+  const plannerWeekEl = $("[data-planner-week]");
+  const plannerRangeEl = $("[data-planner-range]");
+  const plannerModeBtn = $("[data-planner-mode-btn]");
 
   // ---- state ----
   let repos = [];
@@ -45,10 +50,13 @@
   let notes = [];
   let current = null; // { path, content }
   let dirty = false;
-  const MODES = ["edit", "split", "preview", "todo"];
+  const MODES = ["edit", "split", "preview", "todo", "planner"];
   let mode = MODES.includes(localStorage.getItem("notes.mode"))
     ? localStorage.getItem("notes.mode")
     : "edit";
+  // Planner is a per-note view, not a sticky default: never boot into it (a
+  // planner note re-selects it on open).
+  if (mode === "planner") mode = "edit";
 
   // marked: render markdown but keep it reasonably safe-ish for personal use.
   if (window.marked) {
@@ -341,9 +349,11 @@
     mode = next;
     localStorage.setItem("notes.mode", next);
     const isTodo = next === "todo";
-    modeContainer.hidden = isTodo;
+    const isPlanner = next === "planner";
+    modeContainer.hidden = isTodo || isPlanner;
     todoPane.hidden = !isTodo;
-    if (!isTodo) modeContainer.dataset.view = next;
+    plannerPane.hidden = !isPlanner;
+    if (!isTodo && !isPlanner) modeContainer.dataset.view = next;
     document.querySelectorAll(".mode-btn").forEach((b) =>
       b.classList.toggle("is-active", b.dataset.mode === next)
     );
@@ -354,6 +364,7 @@
   function refreshModeView() {
     if (mode === "split" || mode === "preview") renderPreview();
     else if (mode === "todo") renderTodos();
+    else if (mode === "planner") renderPlanner();
   }
 
   function showEditor() {
@@ -365,6 +376,355 @@
   function markEdited() {
     setDirty(true);
     if (mode === "split" || mode === "preview") renderPreview();
+  }
+
+  // ---- planner (weekly) mode ----
+  // A planner note is markdown with `## Monday`…`## Sunday` sections, each
+  // holding `- [ ] task` lines. Like Checklist mode, the textarea is the single
+  // source of truth: we parse it into a model, render seven day cards, and
+  // rewrite the markdown on every change. Task lines use the shared grammar —
+  // a leading `HH:MM` time and a trailing ` !` importance flag.
+  const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const PLANNER_TASK_RE = /^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/;
+  let plannerModel = null;      // { front, intro, days:{name:{tasks,extra}}, tail }
+  let plannerWeek = null;       // { year, week }
+
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
+  // ISO-8601 week number + week-year for a Date (evaluated in UTC).
+  function isoWeek(date) {
+    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const dayNum = (d.getUTCDay() + 6) % 7;            // Mon=0 … Sun=6
+    d.setUTCDate(d.getUTCDate() - dayNum + 3);         // Thursday decides the year
+    const firstThu = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+    const firstDayNum = (firstThu.getUTCDay() + 6) % 7;
+    firstThu.setUTCDate(firstThu.getUTCDate() - firstDayNum + 3);
+    const week = 1 + Math.round((d - firstThu) / (7 * 86400000));
+    return { year: d.getUTCFullYear(), week };
+  }
+
+  // Monday (UTC) of a given ISO week — Jan 4 is always in week 1.
+  function mondayOfISOWeek(year, week) {
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const dayNum = (jan4.getUTCDay() + 6) % 7;
+    const monday = new Date(jan4);
+    monday.setUTCDate(jan4.getUTCDate() - dayNum + (week - 1) * 7);
+    return monday;
+  }
+
+  function addDays(date, n) {
+    const d = new Date(date);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d;
+  }
+  function fmtDay(date) { return MONTHS[date.getUTCMonth()] + " " + date.getUTCDate(); }
+  function fmtRange(mon, sun) {
+    const a = fmtDay(mon);
+    const b = sun.getUTCMonth() === mon.getUTCMonth() ? String(sun.getUTCDate()) : fmtDay(sun);
+    return a + " – " + b + ", " + sun.getUTCFullYear();
+  }
+
+  function plannerPath(year, week) { return "planner/" + year + "-W" + pad2(week) + ".md"; }
+
+  // Pull {year,week} from a `planner/2026-W31.md` path, else null.
+  function weekFromPath(p) {
+    const m = /(\d{4})-W(\d{2})/.exec(p || "");
+    return m ? { year: +m[1], week: +m[2] } : null;
+  }
+
+  function normalizeTime(t) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(t);
+    if (!m) return "";
+    let h = Math.min(23, +m[1]);
+    return pad2(h) + ":" + m[2];
+  }
+
+  // Split a task's text into {time, text, important}, honouring the shared grammar.
+  function splitTokens(raw) {
+    let text = raw.trim();
+    let important = false;
+    if (/\s!$/.test(text) || text === "!") {
+      important = true;
+      text = text.replace(/\s*!$/, "").trim();
+    }
+    let time = "";
+    const tm = /^(\d{1,2}:\d{2})\s+(.*)$/.exec(text);
+    if (tm) { time = normalizeTime(tm[1]); text = tm[2].trim(); }
+    return { time, text, important };
+  }
+
+  function serializeTask(t) {
+    let s = "- [" + (t.checked ? "x" : " ") + "] ";
+    if (t.time) s += t.time + " ";
+    s += t.text;
+    if (t.important) s += " !";
+    return s;
+  }
+
+  // Parse the whole note into a planner model. Anything that isn't a day section
+  // (front-matter, an intro, stray `## Other` sections) is preserved verbatim so
+  // round-tripping never loses hand-written content.
+  function parsePlanner(text) {
+    const lines = text.split("\n");
+    let idx = 0;
+    let front = [];
+    if (lines[0] !== undefined && lines[0].trim() === "---") {
+      front.push(lines[0]);
+      idx = 1;
+      while (idx < lines.length && lines[idx].trim() !== "---") front.push(lines[idx++]);
+      if (idx < lines.length) { front.push(lines[idx]); idx++; } // closing ---
+    }
+
+    const days = {};
+    DAY_NAMES.forEach((n) => { days[n] = { tasks: [], extra: [] }; });
+    const intro = [];
+    const tail = [];
+    let bucket = intro;              // where non-heading lines land
+    let curDay = null;
+
+    for (; idx < lines.length; idx++) {
+      const line = lines[idx];
+      const hm = /^##\s+(.*)$/.exec(line);
+      if (hm) {
+        const name = DAY_NAMES.find((n) => n.toLowerCase() === hm[1].trim().toLowerCase());
+        if (name) { curDay = name; bucket = null; continue; }
+        curDay = null;
+        tail.push(line);
+        bucket = tail;
+        continue;
+      }
+      if (curDay) {
+        const tm = PLANNER_TASK_RE.exec(line);
+        if (tm) {
+          const parts = splitTokens(tm[2]);
+          days[curDay].tasks.push({
+            checked: tm[1].toLowerCase() === "x",
+            time: parts.time, text: parts.text, important: parts.important,
+          });
+        } else if (line.trim() !== "") {
+          days[curDay].extra.push(line);
+        }
+        continue;
+      }
+      bucket.push(line);
+    }
+
+    // Week: prefer front-matter `week:`, else the filename.
+    let week = null;
+    const wl = front.join("\n").match(/week:\s*(\d{4})-W(\d{2})/);
+    if (wl) week = { year: +wl[1], week: +wl[2] };
+    return { front, intro, days, tail, week };
+  }
+
+  function serializePlanner(m) {
+    const out = [];
+    if (m.front.length) out.push(...m.front);
+    // trim leading/trailing blank lines of the intro, keep one blank separator
+    const intro = m.intro.join("\n").replace(/^\n+|\n+$/g, "");
+    if (intro) { out.push(intro, ""); }
+    else if (m.front.length) out.push("");
+    for (const name of DAY_NAMES) {
+      out.push("## " + name);
+      const d = m.days[name];
+      const kids = d.tasks.slice().sort((a, b) => (a.checked === b.checked ? 0 : a.checked ? 1 : -1));
+      for (const t of kids) out.push(serializeTask(t));
+      for (const e of d.extra) out.push(e);
+      out.push("");
+    }
+    if (m.tail.length) out.push(...m.tail);
+    return out.join("\n").replace(/\n{3,}/g, "\n\n");
+  }
+
+  // Rewrite the textarea from the model, mark dirty, re-render.
+  function commitPlanner() {
+    textarea.value = serializePlanner(plannerModel);
+    setDirty(true);
+    if (mode === "split" || mode === "preview") renderPreview();
+    renderPlanner();
+    recordHistory();
+  }
+
+  function plannerScaffold(year, week) {
+    const mon = mondayOfISOWeek(year, week);
+    const sun = addDays(mon, 6);
+    const out = [
+      "---", "type: planner", "week: " + year + "-W" + pad2(week), "---", "",
+      "# Week " + week + " · " + fmtRange(mon, sun), "",
+    ];
+    for (const n of DAY_NAMES) { out.push("## " + n, ""); }
+    return out.join("\n");
+  }
+
+  function buildDayCard(name, dayIdx, mon, todayIdx) {
+    const model = plannerModel.days[name];
+    const date = addDays(mon, dayIdx);
+    const section = document.createElement("section");
+    section.className = "planner-day" + (dayIdx === todayIdx ? " is-today" : "");
+
+    const head = document.createElement("div");
+    head.className = "planner-day-head";
+    const open = model.tasks.filter((t) => !t.checked).length;
+    head.innerHTML =
+      '<span class="planner-day-name">' + name + "</span>" +
+      '<span class="planner-day-date">' + fmtDay(date) + "</span>" +
+      '<span class="planner-day-count' + (open ? "" : " empty") + '">' + open + "</span>";
+    section.appendChild(head);
+
+    const ul = document.createElement("ul");
+    ul.className = "planner-tasks";
+    const ordered = model.tasks
+      .map((t, i) => ({ t, i }))
+      .sort((a, b) => (a.t.checked === b.t.checked ? 0 : a.t.checked ? 1 : -1));
+    for (const { t, i } of ordered) ul.appendChild(buildTaskRow(name, t, i));
+    section.appendChild(ul);
+
+    const form = document.createElement("form");
+    form.className = "planner-add";
+    form.innerHTML =
+      '<input type="text" placeholder="Add to ' + name + '…" autocomplete="off" aria-label="Add to ' + name + '">' +
+      '<button type="submit" aria-label="Add task"><i class="fa-solid fa-plus"></i></button>';
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const input = form.querySelector("input");
+      const raw = input.value.trim();
+      if (!raw) return;
+      const parts = splitTokens(raw);
+      if (!parts.text) return;
+      plannerModel.days[name].tasks.push({ checked: false, ...parts });
+      input.value = "";
+      commitPlanner();
+    });
+    section.appendChild(form);
+    return section;
+  }
+
+  function buildTaskRow(name, task, i) {
+    const li = document.createElement("li");
+    li.className = "planner-task" + (task.checked ? " checked" : "") + (task.important ? " important" : "");
+
+    const check = document.createElement("button");
+    check.className = "planner-check";
+    check.type = "button";
+    check.setAttribute("aria-label", task.checked ? "Mark incomplete" : "Mark complete");
+    check.innerHTML = '<i class="fa-solid fa-check"></i>';
+    check.addEventListener("click", () => { task.checked = !task.checked; commitPlanner(); });
+
+    const time = document.createElement("span");
+    time.className = "planner-time" + (task.time ? "" : " empty");
+    time.textContent = task.time || "＋time";
+    time.title = "Set a time (HH:MM), blank to clear";
+    time.addEventListener("click", () => {
+      const v = prompt("Time (HH:MM), blank to clear:", task.time || "");
+      if (v === null) return;
+      task.time = v.trim() ? normalizeTime(v.trim()) : "";
+      commitPlanner();
+    });
+
+    const text = document.createElement("span");
+    text.className = "planner-text";
+    text.contentEditable = "true";
+    text.spellcheck = false;
+    text.textContent = task.text;
+    text.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); text.blur(); }
+    });
+    text.addEventListener("blur", () => {
+      const v = text.textContent.trim();
+      if (v === task.text) return;
+      if (!v) { plannerModel.days[name].tasks.splice(i, 1); commitPlanner(); return; }
+      task.text = v;
+      commitPlanner();
+    });
+
+    const star = document.createElement("button");
+    star.className = "planner-star" + (task.important ? " on" : "");
+    star.type = "button";
+    star.setAttribute("aria-label", task.important ? "Unmark important" : "Mark important");
+    star.innerHTML = '<i class="fa-' + (task.important ? "solid" : "regular") + ' fa-star"></i>';
+    star.addEventListener("click", () => { task.important = !task.important; commitPlanner(); });
+
+    const del = document.createElement("button");
+    del.className = "planner-del";
+    del.type = "button";
+    del.setAttribute("aria-label", "Delete task");
+    del.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+    del.addEventListener("click", () => { plannerModel.days[name].tasks.splice(i, 1); commitPlanner(); });
+
+    li.append(check, time, text, star, del);
+    return li;
+  }
+
+  function renderPlanner() {
+    if (!current) return;
+    plannerModel = parsePlanner(textarea.value);
+    plannerWeek = plannerModel.week || weekFromPath(current.path) || isoWeek(new Date());
+
+    const mon = mondayOfISOWeek(plannerWeek.year, plannerWeek.week);
+    const sun = addDays(mon, 6);
+    plannerWeekEl.textContent = "Week " + plannerWeek.week;
+    plannerRangeEl.textContent = fmtRange(mon, sun);
+
+    const nowIso = isoWeek(new Date());
+    const todayIdx = (nowIso.year === plannerWeek.year && nowIso.week === plannerWeek.week)
+      ? (new Date().getDay() + 6) % 7
+      : -1;
+
+    plannerDaysEl.textContent = "";
+    DAY_NAMES.forEach((name, i) => plannerDaysEl.appendChild(buildDayCard(name, i, mon, todayIdx)));
+  }
+
+  // Open the planner for an ISO week, creating a scaffold if the file is absent.
+  // Browsing to a not-yet-existing week shows the scaffold but doesn't write it
+  // until you actually add a task.
+  async function openPlannerWeek(year, week) {
+    const path = plannerPath(year, week);
+    if (notes.some((n) => n.path === path)) { openNote(path); return; }
+    if (dirty && !confirm("Discard unsaved changes?")) return;
+    current = { path, content: "" };
+    localStorage.setItem(lastNoteKey(), path);
+    textarea.value = plannerScaffold(year, week);
+    resetHistory();
+    currentPathEl.textContent = path;
+    setNoteChrome("planner");
+    showEditor();
+    closeSidebar();
+    setDirty(false);           // a freshly-browsed week isn't saved until edited
+    setMode("planner");
+    renderList();
+  }
+
+  function gotoWeek(delta) {
+    if (!plannerWeek) return;
+    const ref = addDays(mondayOfISOWeek(plannerWeek.year, plannerWeek.week), delta * 7);
+    const w = isoWeek(ref);
+    openPlannerWeek(w.year, w.week);
+  }
+
+  // Infer a note's type from front-matter, else its folder.
+  function noteType(path, content) {
+    const fm = /^---\n([\s\S]*?)\n---/.exec(content || "");
+    if (fm) {
+      const t = /(^|\n)type:\s*(\w+)/.exec(fm[1]);
+      if (t) return t[2];
+    }
+    if (/^planner\//.test(path || "")) return "planner";
+    return "";
+  }
+
+  // Show/hide type-specific toolbar affordances for the open note.
+  function setNoteChrome(type) {
+    if (plannerModeBtn) plannerModeBtn.hidden = type !== "planner";
+  }
+
+  // Pick the right view when a note opens: planner notes get the planner; other
+  // notes leave the planner view (so it isn't stuck on a non-planner note).
+  function autoSelectMode(path, content) {
+    const t = noteType(path, content);
+    setNoteChrome(t);
+    if (t === "planner") { setMode("planner"); return; }
+    if (mode === "planner") { setMode("edit"); return; }
+    refreshModeView();
   }
 
   // ---- undo / redo ----
@@ -1123,7 +1483,7 @@
       setDirty(false);
       showEditor();
       closeSidebar();
-      refreshModeView();
+      autoSelectMode(res.path, res.content);
       renderList();
       if (mode === "edit") textarea.focus();
     } catch (err) {
@@ -1211,6 +1571,7 @@
     textarea.value = "# " + name.replace(/\.md$/i, "").split("/").pop() + "\n\n";
     resetHistory();
     currentPathEl.textContent = name;
+    setNoteChrome(noteType(name, textarea.value));
     showEditor();
     closeSidebar();
     setDirty(true);
@@ -1245,6 +1606,7 @@
     localStorage.removeItem(lastNoteKey());
     setDirty(false);
     textarea.value = "";
+    setNoteChrome("");
     editorPane.hidden = true;
     emptyState.hidden = false;
     renderList();
@@ -1417,6 +1779,18 @@
   });
   todoCompactBtn.addEventListener("click", () => setCompact(!compact));
   todoCollapseAllBtn.addEventListener("click", toggleCollapseAll);
+
+  // Planner: header entry point opens/creates this week; nav walks weeks.
+  $("[data-planner-open]").addEventListener("click", () => {
+    const w = isoWeek(new Date());
+    openPlannerWeek(w.year, w.week);
+  });
+  $("[data-planner-prev]").addEventListener("click", () => gotoWeek(-1));
+  $("[data-planner-next]").addEventListener("click", () => gotoWeek(1));
+  $("[data-planner-today]").addEventListener("click", () => {
+    const w = isoWeek(new Date());
+    openPlannerWeek(w.year, w.week);
+  });
   if (repoSelect) {
     repoSelect.addEventListener("change", () => {
       const id = repoSelect.value;

@@ -98,6 +98,15 @@ func (s *UserStore) allRepoPaths() []string {
 	return paths
 }
 
+// Exists reports whether a username is a currently-known account. Used to reject
+// tokens whose account was removed or renamed since the token was issued.
+func (s *UserStore) Exists(username string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.byName[strings.ToLower(username)]
+	return ok
+}
+
 // ResolveRepo authorises a user for a repo id and returns it. This is the access
 // boundary: a user can only reach repos listed in their own config.
 func (s *UserStore) ResolveRepo(username, repoID string) (Repo, bool) {
@@ -183,6 +192,13 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 		username, err := a.parseToken(strings.TrimPrefix(header, prefix))
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "invalid or expired token")
+			return
+		}
+		// The token is cryptographically valid, but the account it names may have
+		// been removed/renamed (e.g. the users file changed). Reject it so the
+		// client clears the stale token and returns to the login page.
+		if !a.store.Exists(username) {
+			writeError(w, http.StatusUnauthorized, "account no longer exists")
 			return
 		}
 		ctx := context.WithValue(r.Context(), userCtxKey, username)

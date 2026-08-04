@@ -77,8 +77,14 @@ func (n *Notes) resolvePath(repoDir, rel string) (string, string, error) {
 			return "", "", errors.New("dotfiles are not accessible")
 		}
 	}
-	abs := filepath.Join(repoDir, filepath.FromSlash(clean))
-	repoAbs, _ := filepath.Abs(repoDir)
+	// Resolve both the repo root and the target to absolute paths before the
+	// containment check — otherwise a relative NOTES_REPO (e.g. "../repo") makes
+	// abs relative while repoAbs is absolute, so every path looks like it escapes.
+	repoAbs, err := filepath.Abs(repoDir)
+	if err != nil {
+		return "", "", err
+	}
+	abs := filepath.Join(repoAbs, filepath.FromSlash(clean))
 	if !strings.HasPrefix(abs, repoAbs+string(os.PathSeparator)) {
 		return "", "", errors.New("path escapes the repository")
 	}

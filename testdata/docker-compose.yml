@@ -1,0 +1,38 @@
+# Self-contained TEST stack — independent of dev/docker-compose.yml.
+#
+# Serves the seeded repo (testdata/repo) with throwaway accounts
+# (admin/admin, user/user). Unique container name + port so it can run
+# alongside the dev stack without colliding. No SSH/gitconfig mounts and
+# auto-push off — this repo has no remote.
+#
+# Prereq: seed the repo first (creates ./repo):
+#   testdata/seed.sh          # or: make seed
+#
+# Then, from this directory:
+#   docker compose up --build           # → http://localhost:8090
+# Or from the project root:
+#   make test-up   /   make test-down   /   make test-logs
+services:
+  notes-test:
+    build: ..
+    image: notes-test
+    container_name: notes-test
+    restart: unless-stopped
+    ports:
+      - "${TEST_PORT:-8090}:8080"
+    environment:
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      # Fixed dev secret so test logins survive restarts (NOT for production).
+      JWT_SECRET: "${JWT_SECRET:-test-secret-do-not-use-in-prod}"
+      # Commit identity — no .gitconfig is mounted, so set it explicitly.
+      GIT_AUTHOR_NAME: "Notes Test"
+      GIT_AUTHOR_EMAIL: "test@example.com"
+      # The seeded repo has no upstream: don't try to push/pull.
+      AUTO_PUSH: "false"
+      AUTO_PULL: "false"
+    volumes:
+      # The seeded notes repo (regenerate with testdata/seed.sh).
+      - ./repo:/data/repo
+      # Throwaway test accounts (admin/admin, user/user).
+      - ./users.demo.json:/data/users.json:ro

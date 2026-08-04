@@ -1,4 +1,7 @@
-.PHONY: install frontend backend build dev run hashpw up down logs rebuild clean
+.PHONY: install frontend backend build dev run seed demo test-up test-down test-logs hashpw up down logs rebuild clean
+
+SEED_REPO ?= testdata/repo
+TEST_COMPOSE = docker-compose -f testdata/docker-compose.yml
 
 # Install frontend dependencies.
 install:
@@ -28,6 +31,34 @@ run: build
 	JWT_SECRET=$${JWT_SECRET:-dev-secret} \
 	LISTEN_ADDR=:8080 \
 	./notes
+
+# Populate a test repo with sample notes/checklists/recipes/meetings.
+seed:
+	./testdata/seed.sh --force $(SEED_REPO)
+
+# Build + run the app locally against the seeded test repo (seeds it if
+# missing). Self-contained test accounts: admin/admin, user/user.
+demo: build
+	@test -d $(SEED_REPO) || ./testdata/seed.sh $(SEED_REPO)
+	cd backend && \
+	STATIC_DIR=../frontend/_site \
+	NOTES_REPO=../$(SEED_REPO) \
+	USERS_FILE=../testdata/users.demo.json \
+	JWT_SECRET=$${JWT_SECRET:-dev-secret} \
+	AUTO_PUSH=false AUTO_PULL=false \
+	LISTEN_ADDR=:8080 \
+	./notes
+
+# Run the self-contained test stack in Docker (its own compose, port 8090).
+test-up:
+	@test -d $(SEED_REPO) || ./testdata/seed.sh $(SEED_REPO)
+	$(TEST_COMPOSE) up -d --build
+
+test-down:
+	$(TEST_COMPOSE) down
+
+test-logs:
+	$(TEST_COMPOSE) logs -f
 
 # Generate a bcrypt hash for a users.json entry (prompts for the password).
 hashpw: backend

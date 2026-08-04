@@ -17,6 +17,9 @@ bodyClass: app-body
     <button class="button button-ghost sidebar-toggle" type="button" data-sidebar-toggle title="Browse notes" aria-label="Browse notes">
       <i class="fa-solid fa-bars"></i>
     </button>
+    <button class="button button-ghost" type="button" data-planner-open title="This week's plan" aria-label="This week's plan">
+      <i class="fa-solid fa-calendar-week"></i><span class="btn-label"> Plan</span>
+    </button>
     <span class="git-pill" data-status title="Repository status">
       <i class="fa-solid fa-code-branch"></i>
       <span data-status-text>…</span>
@@ -95,6 +98,8 @@ bodyClass: app-body
             <button type="button" role="menuitem" data-insert="quote"><i class="fa-solid fa-quote-right"></i> Quote</button>
           </div>
         </div>
+        <button class="mode-btn mode-btn-icon" data-mode="planner" type="button" data-planner-mode-btn
+          title="Planner mode" aria-label="Planner mode" hidden><i class="fa-solid fa-calendar-week"></i></button>
         <button class="mode-btn mode-btn-icon" data-mode="todo" type="button"
           title="Checklist mode" aria-label="Checklist mode"><i class="fa-solid fa-list-check"></i></button>
         <button class="mode-btn is-active" data-mode="edit" type="button">Edit</button>
@@ -139,6 +144,22 @@ bodyClass: app-body
           <i class="fa-solid fa-plus"></i>
         </button>
       </form>
+    </div>
+
+    <div class="editor-planner" data-planner-pane hidden>
+      <div class="planner-toolbar">
+        <button class="planner-nav" type="button" data-planner-prev
+          title="Previous week" aria-label="Previous week"><i class="fa-solid fa-chevron-left"></i></button>
+        <div class="planner-weeklabel">
+          <strong data-planner-week>Week</strong>
+          <span data-planner-range></span>
+        </div>
+        <button class="planner-nav" type="button" data-planner-next
+          title="Next week" aria-label="Next week"><i class="fa-solid fa-chevron-right"></i></button>
+        <button class="todo-mini planner-today" type="button" data-planner-today
+          title="Jump to this week">Today</button>
+      </div>
+      <div class="planner-scroll" data-planner-days></div>
     </div>
   </main>
 

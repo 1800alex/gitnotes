@@ -5,6 +5,9 @@ users.json
 # Dev folder
 /dev/
 
+# Seeded test repo (regenerate with testdata/seed.sh)
+/testdata/repo/
+
 # Build output
 frontend/_site/
 frontend/node_modules/
