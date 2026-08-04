@@ -1,0 +1,20 @@
+{
+  "_comment": "Integration-test accounts (admin/admin, user/user). Explicit repos exercise multi-repo access control: admin can reach both `default` (the seeded main repo) and `work`; `user` can reach only `default`, which is shared with admin. `default` keeps its id so the rest of the suite (repo=default) is unaffected.",
+  "users": [
+    {
+      "username": "admin",
+      "passwordHash": "$2a$10$9LR5vKK7qHWCjNqwCEwV8O5fUJFE/s3JF3UOD.oDmgxLK6IwJT.FS",
+      "repos": [
+        { "id": "default", "name": "Notes", "path": "/data/repo" },
+        { "id": "work", "name": "Work", "path": "/data/work" }
+      ]
+    },
+    {
+      "username": "user",
+      "passwordHash": "$2a$10$LfjEi8IVE7V0hiIyknQMT.mrdfLDz1p3AbqQ39GobJgzw8kfXj4qW",
+      "repos": [
+        { "id": "default", "name": "Notes", "path": "/data/repo" }
+      ]
+    }
+  ]
+}

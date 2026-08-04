@@ -110,15 +110,14 @@ is mounted read-only; edit it on the host and restart the container.
 ## How sync works
 
 - **Save** → if the note changed on disk since you opened it (another device
-  saved through the same backend), the server attempts a **3-way merge** using
-  your loaded version as the common ancestor. Non-overlapping edits merge
-  automatically; only genuinely overlapping edits become a conflict, in which
-  case the save is rejected and the editor is filled with the conflict-marked
-  text (`<<<<<<< … ======= … >>>>>>>`) for you to resolve and save again. The
-  merged/written file is then `git add`-ed, `git commit`-ed and `git push`-ed
-  (when an upstream exists and `AUTO_PUSH=true`). If the push is rejected (e.g.
-  the remote moved on), the change is still committed locally and the UI shows
-  *exactly* why the push failed, prompting you to **Refresh**.
+  saved through the same backend), the server does a **3-way merge** using your
+  loaded version as the common ancestor. Non-overlapping edits merge silently.
+  Overlapping edits are **union-merged** — both sides' lines are kept (nothing is
+  dropped and no conflict markers are written), and the UI flags that overlap so
+  you can tidy up the duplicated lines. The merged/written file is then `git add`-ed,
+  `git commit`-ed and `git push`-ed (when an upstream exists and `AUTO_PUSH=true`).
+  If the push is rejected (e.g. the remote moved on), the change is still committed
+  locally and the UI shows *exactly* why the push failed, prompting you to **Refresh**.
 - **Refresh** → `git fetch` → fast-forward if possible, otherwise attempt a
   merge. **On conflict the merge is aborted** (your working tree is left
   untouched) and the UI lists the conflicting files so you can resolve them
@@ -127,8 +126,9 @@ is mounted read-only; edit it on the host and restart the container.
   copy current when the container boots.
 
 Concurrent edits to the *same note* are merged automatically when they don't
-overlap (3-way merge on save, see above); overlapping edits are surfaced as a
-conflict rather than silently overwritten. Divergent *git histories* (local vs.
+overlap (3-way merge on save, see above); overlapping edits keep both sides
+(union merge) rather than silently overwriting one, and you're warned to tidy up.
+Divergent *git histories* (local vs.
 remote) are never auto-resolved — the app reports them and leaves both sides
 intact for you to reconcile.
 

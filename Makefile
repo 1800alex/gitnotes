@@ -1,4 +1,4 @@
-.PHONY: install frontend backend build dev run seed demo test-up test-down test-logs hashpw up down logs rebuild clean
+.PHONY: install frontend backend build dev run seed demo test test-go test-js test-up test-down test-logs itest itest-setup itest-deps hashpw up down logs rebuild clean
 
 SEED_REPO ?= testdata/repo
 TEST_COMPOSE = docker-compose -f testdata/docker-compose.yml
@@ -59,6 +59,27 @@ test-down:
 
 test-logs:
 	$(TEST_COMPOSE) logs -f
+
+# Fast unit tests (no Docker): Go backend logic + JS pure helpers (core.js).
+test: test-go test-js
+test-go:
+	cd backend && go test ./...
+test-js:
+	cd frontend && node --test test/*.test.js
+
+# One-time setup for the integration tests: npm deps + the Playwright browser.
+itest-setup:
+	cd integration && npm install && npx playwright install chromium
+
+# Install Chromium's system libraries (needs sudo/apt). Run once if the browser
+# fails to launch with a missing-library error.
+itest-deps:
+	cd integration && npx playwright install-deps chromium
+
+# Full end-to-end integration run: seed → dockerized app → Playwright → teardown.
+# Runs itest-setup first so a fresh checkout works with a single command.
+itest: itest-setup
+	./integration/run.sh
 
 # Generate a bcrypt hash for a users.json entry (prompts for the password).
 hashpw: backend

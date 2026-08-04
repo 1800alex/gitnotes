@@ -4,6 +4,10 @@
   const { Auth, Api } = window.NotesApp;
   if (!Auth.requireLogin()) return;
 
+  // Pure, unit-tested helpers (dates + the shared action grammar) live in core.js
+  // so they can be tested in Node and kept parity with the Go backend.
+  const { pad2, isoWeek, mondayOfISOWeek, addDays, normalizeTime, parseAction, serializeAction } = window.NotesCore;
+
   // ---- element refs ----
   const $ = (sel) => document.querySelector(sel);
   const listEl = $("[data-note-list]");
@@ -433,34 +437,7 @@
   let plannerModel = null;      // { front, intro, days:{name:{tasks,extra}}, tail }
   let plannerWeek = null;       // { year, week }
 
-  function pad2(n) { return String(n).padStart(2, "0"); }
-
-  // ISO-8601 week number + week-year for a Date (evaluated in UTC).
-  function isoWeek(date) {
-    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-    const dayNum = (d.getUTCDay() + 6) % 7;            // Mon=0 … Sun=6
-    d.setUTCDate(d.getUTCDate() - dayNum + 3);         // Thursday decides the year
-    const firstThu = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
-    const firstDayNum = (firstThu.getUTCDay() + 6) % 7;
-    firstThu.setUTCDate(firstThu.getUTCDate() - firstDayNum + 3);
-    const week = 1 + Math.round((d - firstThu) / (7 * 86400000));
-    return { year: d.getUTCFullYear(), week };
-  }
-
-  // Monday (UTC) of a given ISO week — Jan 4 is always in week 1.
-  function mondayOfISOWeek(year, week) {
-    const jan4 = new Date(Date.UTC(year, 0, 4));
-    const dayNum = (jan4.getUTCDay() + 6) % 7;
-    const monday = new Date(jan4);
-    monday.setUTCDate(jan4.getUTCDate() - dayNum + (week - 1) * 7);
-    return monday;
-  }
-
-  function addDays(date, n) {
-    const d = new Date(date);
-    d.setUTCDate(d.getUTCDate() + n);
-    return d;
-  }
+  // pad2 / isoWeek / mondayOfISOWeek / addDays come from NotesCore (see top).
   function fmtDay(date) { return MONTHS[date.getUTCMonth()] + " " + date.getUTCDate(); }
   function fmtRange(mon, sun) {
     const a = fmtDay(mon);
@@ -476,12 +453,7 @@
     return m ? { year: +m[1], week: +m[2] } : null;
   }
 
-  function normalizeTime(t) {
-    const m = /^(\d{1,2}):(\d{2})$/.exec(t);
-    if (!m) return "";
-    let h = Math.min(23, +m[1]);
-    return pad2(h) + ":" + m[2];
-  }
+  // normalizeTime comes from NotesCore (see top).
 
   // Split a task's text into {time, text, important}, honouring the shared grammar.
   function splitTokens(raw) {
@@ -1291,27 +1263,8 @@
   }
 
   // ---- shared action-item grammar & dates ----
-  // Task/action lines share tokens: `text due:YYYY-MM-DD @owner !`. parseAction
-  // pulls them out (and strips them from the text); serializeAction re-appends
-  // them in a canonical order so lines round-trip stably.
-  function parseAction(raw) {
-    let text = (raw || "").trim();
-    let important = false, due = "";
-    const owners = [];
-    if (/\s!$/.test(text) || text === "!") { important = true; text = text.replace(/\s*!$/, "").trim(); }
-    const dm = /(^|\s)due:(\d{4}-\d{2}-\d{2})(?=\s|$)/.exec(text);
-    if (dm) { due = dm[2]; text = (text.slice(0, dm.index) + " " + text.slice(dm.index + dm[0].length)).trim(); }
-    text = text.replace(/(^|\s)@([^\s]+)/g, (_m, pre, name) => { owners.push(name); return pre; });
-    text = text.replace(/\s{2,}/g, " ").trim();
-    return { text, due, owners, important };
-  }
-  function serializeAction(a) {
-    let s = "- [" + (a.checked ? "x" : " ") + "] " + a.text;
-    if (a.due) s += " due:" + a.due;
-    for (const o of a.owners) s += " @" + o;
-    if (a.important) s += " !";
-    return s;
-  }
+  // parseAction / serializeAction come from NotesCore (see top) — they must stay
+  // parity with the Go backend's parseActionTokens.
 
   function todayStr() {
     const n = new Date();

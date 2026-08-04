@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -261,26 +262,44 @@ func (g *Git) MergeFile(ours, base, theirs string) (merged string, overlap bool,
 		return "", false, err
 	}
 
-	// -p writes the merged result to stdout; --union auto-resolves conflicting
-	// hunks by keeping both sides' lines, so the output never contains conflict
-	// markers and no edit is dropped.
-	cmd := exec.Command("git", "merge-file", "-p", "--union", oursPath, basePath, theirsPath)
-	var out, errBuf bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errBuf
-	runErr := cmd.Run()
-	if runErr == nil {
-		return out.String(), false, nil // clean, no overlapping hunks
-	}
-	// merge-file exits with the number of (auto-resolved) conflicts, 1..127;
-	// anything else (e.g. 255) is a real error.
-	if exit, ok := runErr.(*exec.ExitError); ok {
-		if code := exit.ExitCode(); code >= 1 && code <= 127 {
-			return out.String(), true, nil
+	// First a plain 3-way merge to learn whether the edits actually overlap:
+	// merge-file exits 0 when clean, or 1..127 = the number of conflicting hunks.
+	// -p writes the result to stdout instead of editing in place.
+	run := func(extra ...string) (string, error) {
+		args := append([]string{"merge-file", "-p"}, extra...)
+		args = append(args, oursPath, basePath, theirsPath)
+		cmd := exec.Command("git", args...)
+		var out, errBuf bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &errBuf
+		if err := cmd.Run(); err != nil {
+			if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() >= 1 && exit.ExitCode() <= 127 {
+				return out.String(), errConflict // conflicting hunks (auto-resolvable)
+			}
+			return "", fmt.Errorf("git merge-file: %s", firstNonEmpty(errBuf.String(), err.Error()))
 		}
+		return out.String(), nil
 	}
-	return "", false, fmt.Errorf("git merge-file: %s", firstNonEmpty(errBuf.String(), runErr.Error()))
+
+	clean, err := run()
+	if err == nil {
+		return clean, false, nil // non-overlapping — merged cleanly
+	}
+	if err != errConflict {
+		return "", false, err
+	}
+	// Overlapping hunks. Re-run with --union so both sides' lines are kept (never
+	// conflict markers, never a dropped edit) and flag overlap so the UI can tell
+	// the user to tidy up the duplicated lines.
+	union, uerr := run("--union")
+	if uerr != nil && uerr != errConflict {
+		return "", false, uerr
+	}
+	return union, true, nil
 }
+
+// errConflict is a sentinel: merge-file reported overlapping (auto-resolvable) hunks.
+var errConflict = errors.New("merge conflict")
 
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
