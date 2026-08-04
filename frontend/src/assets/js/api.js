@@ -147,6 +147,11 @@
     status(repo) {
       return request("GET", "/api/status?repo=" + encodeURIComponent(repo));
     },
+    // Server-side agenda scan (fast on large repos). Older backends 404 here,
+    // in which case the app falls back to a client-side scan.
+    agenda(repo) {
+      return request("GET", "/api/agenda?repo=" + encodeURIComponent(repo));
+    },
     refresh(repo) {
       return request("POST", "/api/refresh", { repo });
     },

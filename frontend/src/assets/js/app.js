@@ -50,6 +50,14 @@
   const mealplanGridEl = $("[data-mealplan-grid]");
   const mealplanWeekEl = $("[data-mealplan-week]");
   const mealplanModeBtn = $("[data-mealplan-mode-btn]");
+  const meetingPane = $("[data-meeting-pane]");
+  const meetingBodyEl = $("[data-meeting-body]");
+  const meetingModeBtn = $("[data-meeting-mode-btn]");
+  const agendaPane = $("[data-agenda-pane]");
+  const agendaListEl = $("[data-agenda-list]");
+  const agendaSubEl = $("[data-agenda-sub]");
+  const newMenuBtn = $("[data-new-menu]");
+  const newDropdown = $("[data-new-dropdown]");
 
   // ---- state ----
   let repos = [];
@@ -57,9 +65,9 @@
   let notes = [];
   let current = null; // { path, content }
   let dirty = false;
-  const MODES = ["edit", "split", "preview", "todo", "planner", "recipe", "mealplan"];
+  const MODES = ["edit", "split", "preview", "todo", "planner", "recipe", "mealplan", "meeting"];
   // Views tied to a note's type — selected when such a note opens, not sticky.
-  const TYPED_MODES = ["planner", "recipe", "mealplan"];
+  const TYPED_MODES = ["planner", "recipe", "mealplan", "meeting"];
   let mode = MODES.includes(localStorage.getItem("notes.mode"))
     ? localStorage.getItem("notes.mode")
     : "edit";
@@ -198,13 +206,24 @@
   // ---- editor ----
   let saving = false;
   let autosaveTimer = 0;
-  const AUTOSAVE_MS = 1500;
+
+  // Auto-sync (debounced autosave) is user-configurable: on/off + the idle delay
+  // before a save fires. Defaults to a relaxed 12s; off means save manually.
+  const AUTOSYNC_DEFAULT_SECS = 12;
+  const AUTOSYNC_MIN = 3;
+  const AUTOSYNC_MAX = 300;
+  let autosyncEnabled = localStorage.getItem("notes.autosync") !== "off";
+  let autosyncSecs = (() => {
+    const n = parseInt(localStorage.getItem("notes.autosyncSecs") || "", 10);
+    return Number.isFinite(n) ? Math.min(AUTOSYNC_MAX, Math.max(AUTOSYNC_MIN, n)) : AUTOSYNC_DEFAULT_SECS;
+  })();
 
   function scheduleAutosave() {
     clearTimeout(autosaveTimer);
+    if (!autosyncEnabled) return; // manual-save mode
     autosaveTimer = setTimeout(() => {
       if (dirty && current && !saving) save({ auto: true });
-    }, AUTOSAVE_MS);
+    }, autosyncSecs * 1000);
   }
 
   // Sync status indicator (visible on mobile so you know your work is safe).
@@ -361,6 +380,7 @@
     planner: () => plannerPane,
     recipe: () => recipePane,
     mealplan: () => mealplanPane,
+    meeting: () => meetingPane,
   };
 
   function setMode(next) {
@@ -386,9 +406,11 @@
     else if (mode === "planner") renderPlanner();
     else if (mode === "recipe") renderRecipe();
     else if (mode === "mealplan") renderMealplan();
+    else if (mode === "meeting") renderMeeting();
   }
 
   function showEditor() {
+    if (agendaOpen) closeAgenda();
     emptyState.hidden = true;
     editorPane.hidden = false;
   }
@@ -733,6 +755,7 @@
     if (/^planner\//.test(p)) return "planner";
     if (/^recipes\//.test(p)) return "recipe";
     if (/^meal-plans\//.test(p)) return "mealplan";
+    if (/^meetings\//.test(p)) return "meeting";
     return "";
   }
 
@@ -741,6 +764,7 @@
     if (plannerModeBtn) plannerModeBtn.hidden = type !== "planner";
     if (recipeModeBtn) recipeModeBtn.hidden = type !== "recipe";
     if (mealplanModeBtn) mealplanModeBtn.hidden = type !== "mealplan";
+    if (meetingModeBtn) meetingModeBtn.hidden = type !== "meeting";
   }
 
   // Pick the right view when a note opens: a typed note gets its view; opening a
@@ -1262,7 +1286,430 @@
     if (t === "planner") { const w = weekFromPath(path) || isoWeek(now); return plannerScaffold(w.year, w.week); }
     if (t === "mealplan") { const w = weekFromPath(path) || isoWeek(now); return mealplanScaffold(w.year, w.week); }
     if (t === "recipe") return recipeScaffold(titleFromPath(path));
+    if (t === "meeting") return meetingScaffold(path);
     return "# " + path.replace(/\.md$/i, "").split("/").pop() + "\n\n";
+  }
+
+  // ---- shared action-item grammar & dates ----
+  // Task/action lines share tokens: `text due:YYYY-MM-DD @owner !`. parseAction
+  // pulls them out (and strips them from the text); serializeAction re-appends
+  // them in a canonical order so lines round-trip stably.
+  function parseAction(raw) {
+    let text = (raw || "").trim();
+    let important = false, due = "";
+    const owners = [];
+    if (/\s!$/.test(text) || text === "!") { important = true; text = text.replace(/\s*!$/, "").trim(); }
+    const dm = /(^|\s)due:(\d{4}-\d{2}-\d{2})(?=\s|$)/.exec(text);
+    if (dm) { due = dm[2]; text = (text.slice(0, dm.index) + " " + text.slice(dm.index + dm[0].length)).trim(); }
+    text = text.replace(/(^|\s)@([^\s]+)/g, (_m, pre, name) => { owners.push(name); return pre; });
+    text = text.replace(/\s{2,}/g, " ").trim();
+    return { text, due, owners, important };
+  }
+  function serializeAction(a) {
+    let s = "- [" + (a.checked ? "x" : " ") + "] " + a.text;
+    if (a.due) s += " due:" + a.due;
+    for (const o of a.owners) s += " @" + o;
+    if (a.important) s += " !";
+    return s;
+  }
+
+  function todayStr() {
+    const n = new Date();
+    return n.getFullYear() + "-" + pad2(n.getMonth() + 1) + "-" + pad2(n.getDate());
+  }
+  // Sunday (local YYYY-MM-DD) that ends the current ISO week.
+  function endOfWeekStr() {
+    const n = new Date();
+    const sun = new Date(n.getFullYear(), n.getMonth(), n.getDate() + (7 - ((n.getDay() + 6) % 7) - 1));
+    return sun.getFullYear() + "-" + pad2(sun.getMonth() + 1) + "-" + pad2(sun.getDate());
+  }
+  function fmtDue(s) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || "");
+    if (!m) return s || "";
+    return MONTHS[+m[2] - 1] + " " + +m[3];
+  }
+  // "overdue" | "today" | "soon" | "" relative to now (date strings compare
+  // chronologically because they're zero-padded ISO).
+  function dueBucket(due) {
+    if (!due) return "";
+    const t = todayStr();
+    if (due < t) return "overdue";
+    if (due === t) return "today";
+    if (due <= endOfWeekStr()) return "soon";
+    return "";
+  }
+
+  // ---- meeting mode ----
+  // A meeting note: front-matter (date/attendees/project), a title, a "## Notes"
+  // section (rendered) and an "## Action items" checklist using the shared
+  // grammar. Only the action-items section is mutated in-view; everything else
+  // (including free-form notes) is preserved verbatim and edited in Edit mode.
+  let meetingModel = null;
+
+  function parseMeeting(text) {
+    const lines = text.split("\n");
+    let i = 0;
+    const front = [];
+    if (lines[0] !== undefined && lines[0].trim() === "---") {
+      front.push(lines[0]); i = 1;
+      while (i < lines.length && lines[i].trim() !== "---") front.push(lines[i++]);
+      if (i < lines.length) { front.push(lines[i]); i++; }
+    }
+    const frontText = front.join("\n");
+    const field = (k) => {
+      const m = new RegExp("(^|\\n)" + k + ":\\s*(.+)").exec(frontText);
+      return m ? m[2].trim() : "";
+    };
+    let att = field("attendees");
+    if (/^\[.*\]$/.test(att)) att = att.slice(1, -1);
+    const attendees = att ? att.split(",").map((s) => s.trim()).filter(Boolean) : [];
+
+    let title = "";
+    const preamble = [];
+    const sections = [];
+    let cur = null;
+    for (; i < lines.length; i++) {
+      const line = lines[i];
+      const h2 = /^##\s+(.*)$/.exec(line);
+      if (h2) { cur = { heading: h2[1].trim(), lines: [] }; sections.push(cur); continue; }
+      if (!cur) {
+        const h1 = /^#\s+(.*)$/.exec(line);
+        if (h1 && !title) title = h1[1].trim();
+        preamble.push(line);
+      } else cur.lines.push(line);
+    }
+
+    let actionsSec = null, notesSec = null;
+    for (const s of sections) {
+      const n = s.heading.toLowerCase();
+      if (!actionsSec && /^(action|follow|task|todo|to-do)/.test(n)) actionsSec = s;
+      else if (!notesSec && /^note/.test(n)) notesSec = s;
+    }
+    const isActionLine = (l) => /^\s*[-*+]\s+\[[ xX]\]/.test(l);
+    let actions = [];
+    if (actionsSec) {
+      actions = actionsSec.lines.filter(isActionLine).map((l) => {
+        const m = /^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/.exec(l);
+        return { checked: m[1].toLowerCase() === "x", ...parseAction(m[2]) };
+      });
+      actionsSec._extra = actionsSec.lines.filter((l) => l.trim() !== "" && !isActionLine(l));
+    }
+    return {
+      front, fields: { date: field("date"), project: field("project"), attendees },
+      title, preamble, sections, actionsSec, notesSec, actions,
+    };
+  }
+
+  function serializeMeeting(m) {
+    const out = [];
+    if (m.front.length) out.push(...m.front);
+    out.push(...m.preamble);
+    for (const s of m.sections) {
+      out.push("## " + s.heading);
+      if (s === m.actionsSec) {
+        for (const a of m.actions) out.push(serializeAction(a));
+        for (const e of (s._extra || [])) out.push(e);
+        out.push("");
+      } else {
+        out.push(...s.lines);
+      }
+    }
+    return out.join("\n").replace(/\n{3,}/g, "\n\n");
+  }
+
+  function commitMeeting() {
+    textarea.value = serializeMeeting(meetingModel);
+    setDirty(true);
+    if (mode === "split" || mode === "preview") renderPreview();
+    renderMeeting();
+    recordHistory();
+  }
+
+  // Ensure there's an Action items section to append to (creating one if needed).
+  function ensureActionsSection() {
+    if (meetingModel.actionsSec) return;
+    const sec = { heading: "Action items", lines: [], _extra: [] };
+    meetingModel.sections.push(sec);
+    meetingModel.actionsSec = sec;
+  }
+
+  function buildActionRow(a, idx) {
+    const li = document.createElement("li");
+    li.className = "mtg-action" + (a.checked ? " checked" : "") + (a.important ? " important" : "");
+
+    const check = document.createElement("button");
+    check.type = "button";
+    check.className = "planner-check";
+    check.innerHTML = '<i class="fa-solid fa-check"></i>';
+    check.setAttribute("aria-label", a.checked ? "Mark incomplete" : "Mark complete");
+    check.addEventListener("click", () => { meetingModel.actions[idx].checked = !a.checked; commitMeeting(); });
+
+    const text = document.createElement("span");
+    text.className = "mtg-action-text";
+    text.contentEditable = "true";
+    text.spellcheck = false;
+    text.textContent = a.text;
+    text.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); text.blur(); } });
+    text.addEventListener("blur", () => {
+      const v = text.textContent.trim();
+      if (v === a.text) return;
+      if (!v) { meetingModel.actions.splice(idx, 1); commitMeeting(); return; }
+      // Re-parse so inline tokens (due:/@/!) typed here are honoured, not literal.
+      const p = parseAction(v);
+      a.text = p.text;
+      if (p.due) a.due = p.due;
+      if (p.important) a.important = true;
+      if (p.owners.length) a.owners = [...new Set([...a.owners, ...p.owners])];
+      commitMeeting();
+    });
+
+    const due = document.createElement("input");
+    due.type = "date";
+    due.className = "mtg-due" + (a.due ? " has " + dueBucket(a.due) : "");
+    if (a.due) due.value = a.due;
+    due.title = "Due date";
+    due.addEventListener("change", () => { a.due = due.value || ""; commitMeeting(); });
+
+    const owners = document.createElement("span");
+    owners.className = "mtg-owners";
+    a.owners.forEach((o) => {
+      const c = document.createElement("span");
+      c.className = "mtg-owner";
+      c.textContent = "@" + o;
+      owners.appendChild(c);
+    });
+
+    const star = document.createElement("button");
+    star.type = "button";
+    star.className = "planner-star" + (a.important ? " on" : "");
+    star.innerHTML = '<i class="fa-' + (a.important ? "solid" : "regular") + ' fa-star"></i>';
+    star.setAttribute("aria-label", a.important ? "Unmark important" : "Mark important");
+    star.addEventListener("click", () => { a.important = !a.important; commitMeeting(); });
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "planner-del";
+    del.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+    del.setAttribute("aria-label", "Delete action item");
+    del.addEventListener("click", () => { meetingModel.actions.splice(idx, 1); commitMeeting(); });
+
+    li.append(check, text, owners, due, star, del);
+    return li;
+  }
+
+  function renderMeeting() {
+    if (!current) return;
+    meetingModel = parseMeeting(textarea.value);
+    const m = meetingModel;
+    meetingBodyEl.textContent = "";
+    const card = document.createElement("div");
+    card.className = "meeting-card";
+
+    const h = document.createElement("h1");
+    h.className = "recipe-title";
+    h.textContent = m.title || titleFromPath(current.path);
+    card.appendChild(h);
+
+    if (m.fields.date || m.fields.project || m.fields.attendees.length) {
+      const meta = document.createElement("div");
+      meta.className = "recipe-meta";
+      if (m.fields.date) meta.appendChild(chip("fa-calendar-day", m.fields.date));
+      if (m.fields.project) meta.appendChild(chip("fa-diagram-project", m.fields.project));
+      if (m.fields.attendees.length) meta.appendChild(chip("fa-users", m.fields.attendees.join(", ")));
+      card.appendChild(meta);
+    }
+
+    if (m.notesSec) {
+      const sec = document.createElement("div");
+      sec.className = "recipe-section";
+      const sh = document.createElement("h2");
+      sh.textContent = m.notesSec.heading;
+      sec.appendChild(sh);
+      const d = document.createElement("div");
+      d.className = "markdown-body";
+      d.innerHTML = renderMd(m.notesSec.lines.join("\n").trim());
+      sec.appendChild(d);
+      card.appendChild(sec);
+    }
+
+    const sec = document.createElement("div");
+    sec.className = "recipe-section";
+    const sh = document.createElement("h2");
+    const open = m.actions.filter((a) => !a.checked).length;
+    sh.textContent = "Action items";
+    if (m.actions.length) {
+      const badge = document.createElement("span");
+      badge.className = "mtg-count";
+      badge.textContent = open + " open";
+      sh.appendChild(document.createTextNode(" "));
+      sh.appendChild(badge);
+    }
+    sec.appendChild(sh);
+    const ul = document.createElement("ul");
+    ul.className = "mtg-actions";
+    m.actions.forEach((a, i) => ul.appendChild(buildActionRow(a, i)));
+    sec.appendChild(ul);
+
+    const form = document.createElement("form");
+    form.className = "planner-add mtg-add";
+    form.innerHTML =
+      '<input type="text" placeholder="Add action… (due:YYYY-MM-DD @who !)" autocomplete="off" aria-label="Add action item">' +
+      '<button type="submit" aria-label="Add"><i class="fa-solid fa-plus"></i></button>';
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const input = form.querySelector("input");
+      const raw = input.value.trim();
+      if (!raw) return;
+      const p = parseAction(raw);
+      if (!p.text) return;
+      ensureActionsSection();
+      meetingModel.actions.push({ checked: false, ...p });
+      input.value = "";
+      commitMeeting();
+    });
+    sec.appendChild(form);
+    card.appendChild(sec);
+    meetingBodyEl.appendChild(card);
+  }
+
+  function meetingScaffold(path) {
+    const wm = /(\d{4}-\d{2}-\d{2})/.exec(path || "");
+    const date = wm ? wm[1] : todayStr();
+    return [
+      "---", "type: meeting", "date: " + date, "attendees: []", "project: ", "---",
+      "# Meeting — " + date, "", "## Notes", "- ", "", "## Action items", "- [ ] ", "",
+    ].join("\n");
+  }
+
+  async function openMeetingToday() {
+    const path = "meetings/" + todayStr() + "-meeting.md";
+    if (notes.some((n) => n.path === path)) { openNote(path); return; }
+    if (dirty && !confirm("Discard unsaved changes?")) return;
+    current = { path, content: "" };
+    localStorage.setItem(lastNoteKey(), path);
+    textarea.value = meetingScaffold(path);
+    resetHistory();
+    currentPathEl.textContent = path;
+    setNoteChrome("meeting");
+    showEditor();
+    closeSidebar();
+    setDirty(false);
+    setMode("meeting");
+    renderList();
+  }
+
+  // ---- agenda (passive) ----
+  // A read-only dashboard: scan every note in the repo for open `- [ ]` items
+  // carrying a `due:` date and group them Overdue / Today / This week / Later.
+  let agendaOpen = false;
+
+  function openAgenda() {
+    if (!currentRepo) { toast("Pick a repo first.", "warn"); return; }
+    agendaOpen = true;
+    closeSidebar();
+    editorPane.hidden = true;
+    emptyState.hidden = true;
+    agendaPane.hidden = false;
+    renderAgenda();
+  }
+  function closeAgenda() {
+    agendaOpen = false;
+    agendaPane.hidden = true;
+    if (current) editorPane.hidden = false;
+    else emptyState.hidden = false;
+  }
+
+  function scanDueItems(path, content, out) {
+    const lines = (content || "").split("\n");
+    let inFence = false;
+    for (const line of lines) {
+      if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
+      if (inFence) continue;
+      const m = /^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/.exec(line);
+      if (!m || m[1].toLowerCase() === "x") continue;
+      if (!/due:\d{4}-\d{2}-\d{2}/.test(m[2])) continue;
+      const a = parseAction(m[2]);
+      if (!a.due) continue;
+      out.push({ path, text: a.text, due: a.due, owners: a.owners, important: a.important });
+    }
+  }
+
+  // Fallback for older backends: fetch every note and scan it in the browser.
+  async function scanAgendaClient() {
+    agendaSubEl.textContent = "Scanning " + notes.length + " notes…";
+    const results = await Promise.all(
+      notes.map((n) =>
+        Api.getNote(currentRepo, n.path).then((r) => ({ path: n.path, content: r.content })).catch(() => null)
+      )
+    );
+    const items = [];
+    results.forEach((r) => { if (r) scanDueItems(r.path, r.content, items); });
+    return items;
+  }
+
+  async function renderAgenda() {
+    agendaListEl.textContent = "";
+    agendaSubEl.textContent = "Scanning…";
+    let items;
+    try {
+      // Prefer the server-side scan (one request, fast on large repos).
+      items = (await Api.agenda(currentRepo)).items || [];
+    } catch (err) {
+      if (err && err.status === 404) items = await scanAgendaClient();
+      else { agendaSubEl.textContent = "Scan failed"; toast("Agenda scan failed: " + err.message, "error"); return; }
+    }
+    if (!agendaOpen) return; // user closed it mid-scan
+    items.forEach((it) => { if (!Array.isArray(it.owners)) it.owners = []; });
+    items.sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : 0));
+
+    const t = todayStr(), eow = endOfWeekStr();
+    const groups = [
+      { key: "overdue", label: "Overdue", items: items.filter((i) => i.due < t) },
+      { key: "today", label: "Today", items: items.filter((i) => i.due === t) },
+      { key: "soon", label: "This week", items: items.filter((i) => i.due > t && i.due <= eow) },
+      { key: "later", label: "Later", items: items.filter((i) => i.due > eow) },
+    ].filter((g) => g.items.length);
+
+    agendaSubEl.textContent = items.length ? items.length + " due" : "";
+    if (!items.length) {
+      const p = document.createElement("p");
+      p.className = "agenda-empty";
+      p.innerHTML = '<i class="fa-solid fa-mug-hot"></i> Nothing due — you’re all caught up.';
+      agendaListEl.appendChild(p);
+      return;
+    }
+    for (const g of groups) {
+      const h = document.createElement("div");
+      h.className = "agenda-group agenda-group-" + g.key;
+      h.innerHTML = '<span>' + g.label + '</span><span class="agenda-group-n">' + g.items.length + "</span>";
+      agendaListEl.appendChild(h);
+      for (const it of g.items) agendaListEl.appendChild(buildAgendaRow(it));
+    }
+  }
+
+  function buildAgendaRow(it) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "agenda-item" + (it.important ? " important" : "");
+    row.title = "Open " + it.path;
+
+    const due = document.createElement("span");
+    due.className = "agenda-due " + (dueBucket(it.due) || "later");
+    due.textContent = fmtDue(it.due);
+
+    const main = document.createElement("span");
+    main.className = "agenda-main";
+    const txt = document.createElement("span");
+    txt.className = "agenda-text";
+    txt.textContent = it.text;
+    const meta = document.createElement("span");
+    meta.className = "agenda-meta";
+    meta.textContent = (it.owners.length ? it.owners.map((o) => "@" + o).join(" ") + " · " : "") + it.path;
+    main.append(txt, meta);
+
+    row.append(due, main);
+    row.addEventListener("click", () => { closeAgenda(); openNote(it.path); });
+    return row;
   }
 
   // ---- undo / redo ----
@@ -2123,6 +2570,106 @@
     }
   }
 
+  // Create a brand-new note at a known path (no prompt), scaffolded + shown in
+  // its type's view. Used by the "New" menu for typed kinds like recipes.
+  function newTypedNote(path) {
+    if (dirty && !confirm("Discard unsaved changes?")) return;
+    current = { path, content: "" };
+    loadCollapsed();
+    textarea.value = defaultScaffold(path);
+    resetHistory();
+    currentPathEl.textContent = path;
+    const t = noteType(path, textarea.value);
+    setNoteChrome(t);
+    showEditor();
+    closeSidebar();
+    setDirty(true);
+    if (TYPED_MODES.includes(t)) setMode(t);
+    else { setMode("edit"); textarea.focus(); }
+    renderList();
+  }
+
+  // ---- settings popover (auto-sync) ----
+  let settingsPop = null;
+  function closeSettings() {
+    if (!settingsPop) return;
+    settingsPop.remove();
+    settingsPop = null;
+    document.removeEventListener("click", onSettingsDocClick, true);
+    document.removeEventListener("keydown", onSettingsKey, true);
+  }
+  function onSettingsDocClick(e) { if (settingsPop && !settingsPop.contains(e.target)) closeSettings(); }
+  function onSettingsKey(e) { if (e.key === "Escape") closeSettings(); }
+
+  function openSettings(anchor) {
+    closeSettings();
+    const pop = document.createElement("div");
+    pop.className = "settings-pop";
+    const head = document.createElement("div");
+    head.className = "settings-head";
+    head.textContent = "Settings";
+    pop.appendChild(head);
+
+    const toggleRow = document.createElement("label");
+    toggleRow.className = "settings-row settings-toggle";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = autosyncEnabled;
+    toggleRow.append(cb, document.createTextNode(" Auto-sync changes"));
+    pop.appendChild(toggleRow);
+
+    const delayRow = document.createElement("div");
+    delayRow.className = "settings-row settings-delay";
+    delayRow.appendChild(document.createTextNode("Sync after "));
+    const num = document.createElement("input");
+    num.type = "number";
+    num.min = String(AUTOSYNC_MIN);
+    num.max = String(AUTOSYNC_MAX);
+    num.value = String(autosyncSecs);
+    num.className = "settings-secs";
+    delayRow.append(num, document.createTextNode(" s of no edits"));
+    pop.appendChild(delayRow);
+
+    const note = document.createElement("p");
+    note.className = "settings-note";
+    note.textContent = "Off = save manually with the Save button (Ctrl+S). Applies on your next edit.";
+    pop.appendChild(note);
+
+    const applyEnabled = () => {
+      num.disabled = !autosyncEnabled;
+      delayRow.classList.toggle("disabled", !autosyncEnabled);
+    };
+    applyEnabled();
+    cb.addEventListener("change", () => {
+      autosyncEnabled = cb.checked;
+      localStorage.setItem("notes.autosync", autosyncEnabled ? "on" : "off");
+      applyEnabled();
+      if (autosyncEnabled) { if (dirty) scheduleAutosave(); }
+      else clearTimeout(autosaveTimer);
+    });
+    num.addEventListener("change", () => {
+      let v = parseInt(num.value, 10);
+      if (!Number.isFinite(v)) v = AUTOSYNC_DEFAULT_SECS;
+      v = Math.min(AUTOSYNC_MAX, Math.max(AUTOSYNC_MIN, v));
+      autosyncSecs = v;
+      num.value = String(v);
+      localStorage.setItem("notes.autosyncSecs", String(v));
+      if (autosyncEnabled && dirty) scheduleAutosave();
+    });
+
+    document.body.appendChild(pop);
+    const r = anchor.getBoundingClientRect();
+    const w = Math.min(280, window.innerWidth - 16);
+    pop.style.width = w + "px";
+    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + "px";
+    pop.style.bottom = window.innerHeight - r.top + 6 + "px"; // open upward from the footer
+    settingsPop = pop;
+    setTimeout(() => {
+      document.addEventListener("click", onSettingsDocClick, true);
+      document.addEventListener("keydown", onSettingsKey, true);
+    }, 0);
+  }
+
   async function deleteNote() {
     if (!current) return;
     if (!confirm('Delete "' + current.path + '"? This commits the deletion to git.')) return;
@@ -2281,6 +2828,9 @@
     if (!insertDropdown.hidden && !e.target.closest(".insert-wrap")) {
       setInsertMenu(false);
     }
+    if (!newDropdown.hidden && !e.target.closest(".new-wrap")) {
+      setNewMenu(false);
+    }
   });
 
   filterEl.addEventListener("input", renderList);
@@ -2323,24 +2873,52 @@
   todoCompactBtn.addEventListener("click", () => setCompact(!compact));
   todoCollapseAllBtn.addEventListener("click", toggleCollapseAll);
 
-  // Planner: header entry point opens/creates this week; nav walks weeks.
-  $("[data-planner-open]").addEventListener("click", () => {
-    const w = isoWeek(new Date());
-    openPlannerWeek(w.year, w.week);
-  });
+  // Planner week nav (inside the planner pane).
   $("[data-planner-prev]").addEventListener("click", () => gotoWeek(-1));
   $("[data-planner-next]").addEventListener("click", () => gotoWeek(1));
   $("[data-planner-today]").addEventListener("click", () => {
     const w = isoWeek(new Date());
     openPlannerWeek(w.year, w.week);
   });
-
-  // Meal plan: header entry point opens/creates this week; shopping-list button.
-  $("[data-mealplan-open]").addEventListener("click", () => {
-    const w = isoWeek(new Date());
-    openMealplanWeek(w.year, w.week);
-  });
   $("[data-mealplan-shop]").addEventListener("click", generateShoppingList);
+
+  // Header "New" menu — one place to create every note type.
+  function setNewMenu(open) {
+    newDropdown.hidden = !open;
+    newMenuBtn.setAttribute("aria-expanded", String(open));
+  }
+  newMenuBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setNewMenu(newDropdown.hidden);
+  });
+  newDropdown.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-new-kind]");
+    if (!btn) return;
+    setNewMenu(false);
+    const kind = btn.getAttribute("data-new-kind");
+    const w = isoWeek(new Date());
+    if (kind === "note") { newNote(); return; }
+    if (kind === "planner") { openPlannerWeek(w.year, w.week); return; }
+    if (kind === "mealplan") { openMealplanWeek(w.year, w.week); return; }
+    if (kind === "meeting") { openMeetingToday(); return; }
+    if (kind === "recipe") {
+      let name = prompt("Recipe name:", "");
+      if (name === null) return;
+      name = name.trim();
+      if (!name) return;
+      const path = "recipes/" + slugify(name) + ".md";
+      if (notes.some((n) => n.path === path)) { openNote(path); return; }
+      newTypedNote(path);
+    }
+  });
+
+  // Agenda (passive dashboard).
+  $("[data-agenda-open]").addEventListener("click", openAgenda);
+  $("[data-agenda-close]").addEventListener("click", closeAgenda);
+  $("[data-agenda-refresh]").addEventListener("click", () => { if (agendaOpen) renderAgenda(); });
+
+  // Settings (auto-sync).
+  $("[data-settings]").addEventListener("click", (e) => { e.stopPropagation(); openSettings(e.currentTarget); });
   if (repoSelect) {
     repoSelect.addEventListener("change", () => {
       const id = repoSelect.value;
@@ -2367,6 +2945,8 @@
     }
     if (e.key === "Escape") {
       if (!insertDropdown.hidden) setInsertMenu(false);
+      if (!newDropdown.hidden) setNewMenu(false);
+      if (agendaOpen) { closeAgenda(); return; }
       if (document.body.classList.contains("sidebar-open")) closeSidebar();
     }
   });

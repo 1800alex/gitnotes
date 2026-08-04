@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -450,4 +451,127 @@ func (n *Notes) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// AgendaItem is one open, due-dated checklist item found anywhere in the repo.
+// It mirrors the client's parseAction output so the browser can group them
+// (Overdue / Today / This week / Later) relative to the user's local clock.
+type AgendaItem struct {
+	Path      string   `json:"path"`
+	Text      string   `json:"text"`
+	Due       string   `json:"due"` // YYYY-MM-DD
+	Owners    []string `json:"owners"`
+	Important bool     `json:"important"`
+}
+
+// Shared action-item grammar (must match the frontend's parseAction):
+//
+//	- [ ] text due:YYYY-MM-DD @owner !
+var (
+	openTaskRe = regexp.MustCompile(`^\s*[-*+]\s+\[ \]\s+(.*)$`)
+	dueRe      = regexp.MustCompile(`(?:^|\s)due:(\d{4}-\d{2}-\d{2})(?:\s|$)`)
+	ownerRe    = regexp.MustCompile(`(^|\s)@([^\s]+)`)
+	fenceRe    = regexp.MustCompile("^\\s*```")
+)
+
+// parseActionTokens pulls due:/@owner/! tokens out of an item's text, matching
+// the frontend so server- and client-side scans agree.
+func parseActionTokens(raw string) AgendaItem {
+	text := strings.TrimSpace(raw)
+	item := AgendaItem{Owners: []string{}}
+	if text == "!" || strings.HasSuffix(text, " !") {
+		item.Important = true
+		text = strings.TrimSpace(strings.TrimSuffix(text, "!"))
+	}
+	if m := dueRe.FindStringSubmatch(text); m != nil {
+		item.Due = m[1]
+		loc := dueRe.FindStringIndex(text)
+		text = strings.TrimSpace(text[:loc[0]] + " " + text[loc[1]:])
+	}
+	for _, om := range ownerRe.FindAllStringSubmatch(text, -1) {
+		item.Owners = append(item.Owners, om[2])
+	}
+	text = ownerRe.ReplaceAllString(text, "$1")
+	item.Text = strings.Join(strings.Fields(text), " ")
+	return item
+}
+
+// scanDueLines appends every open, due-dated checklist item in one note's
+// content, skipping fenced code blocks.
+func scanDueLines(relPath, content string, out *[]AgendaItem) {
+	inFence := false
+	for _, line := range strings.Split(content, "\n") {
+		if fenceRe.MatchString(line) {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		m := openTaskRe.FindStringSubmatch(line)
+		if m == nil || !dueRe.MatchString(m[1]) {
+			continue
+		}
+		item := parseActionTokens(m[1])
+		if item.Due == "" {
+			continue
+		}
+		item.Path = relPath
+		*out = append(*out, item)
+	}
+}
+
+// scanAgenda walks the repo and collects due-dated open items from every note,
+// sorted by due date (then path). This is the server-side equivalent of the
+// client's per-note scan — one request instead of N.
+func (n *Notes) scanAgenda(repoDir string) ([]AgendaItem, error) {
+	out := []AgendaItem{}
+	err := filepath.WalkDir(repoDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if name == ".git" || (name != "." && strings.HasPrefix(name, ".") && p != repoDir) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasPrefix(name, ".") || !strings.HasSuffix(strings.ToLower(name), n.cfg.NoteExt) {
+			return nil
+		}
+		data, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return nil // skip unreadable files rather than failing the whole scan
+		}
+		rel, _ := filepath.Rel(repoDir, p)
+		scanDueLines(filepath.ToSlash(rel), string(data), &out)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Due != out[j].Due {
+			return out[i].Due < out[j].Due
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out, nil
+}
+
+// HandleAgenda: GET /api/agenda?repo=<id> — all open, due-dated items in the repo.
+func (n *Notes) HandleAgenda(w http.ResponseWriter, r *http.Request) {
+	h, repoDir, ok := n.resolve(w, r, r.URL.Query().Get("repo"))
+	if !ok {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	items, err := n.scanAgenda(repoDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not scan agenda: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }

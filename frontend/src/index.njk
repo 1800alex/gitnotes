@@ -17,11 +17,20 @@ bodyClass: app-body
     <button class="button button-ghost sidebar-toggle" type="button" data-sidebar-toggle title="Browse notes" aria-label="Browse notes">
       <i class="fa-solid fa-bars"></i>
     </button>
-    <button class="button button-ghost" type="button" data-planner-open title="This week's plan" aria-label="This week's plan">
-      <i class="fa-solid fa-calendar-week"></i><span class="btn-label"> Plan</span>
-    </button>
-    <button class="button button-ghost" type="button" data-mealplan-open title="This week's meals" aria-label="This week's meals">
-      <i class="fa-solid fa-utensils"></i><span class="btn-label"> Meals</span>
+    <div class="new-wrap">
+      <button class="button button-ghost" type="button" data-new-menu title="Create" aria-haspopup="true" aria-expanded="false">
+        <i class="fa-solid fa-plus"></i><span class="btn-label"> New</span>
+      </button>
+      <div class="new-menu" data-new-dropdown role="menu" hidden>
+        <button type="button" role="menuitem" data-new-kind="note"><i class="fa-solid fa-file-lines"></i> Note</button>
+        <button type="button" role="menuitem" data-new-kind="planner"><i class="fa-solid fa-calendar-week"></i> Weekly plan</button>
+        <button type="button" role="menuitem" data-new-kind="mealplan"><i class="fa-solid fa-utensils"></i> Meal plan</button>
+        <button type="button" role="menuitem" data-new-kind="recipe"><i class="fa-solid fa-book-open"></i> Recipe</button>
+        <button type="button" role="menuitem" data-new-kind="meeting"><i class="fa-solid fa-users"></i> Meeting</button>
+      </div>
+    </div>
+    <button class="button button-ghost" type="button" data-agenda-open title="Agenda — what's due" aria-label="Agenda">
+      <i class="fa-solid fa-calendar-day"></i><span class="btn-label"> Agenda</span>
     </button>
     <span class="git-pill" data-status title="Repository status">
       <i class="fa-solid fa-code-branch"></i>
@@ -58,6 +67,9 @@ bodyClass: app-body
     <div class="sidebar-footer">
       <button class="button button-primary" type="button" data-new>
         <i class="fa-solid fa-file-circle-plus"></i> New note
+      </button>
+      <button class="button button-ghost" type="button" data-settings title="Settings" aria-label="Settings">
+        <i class="fa-solid fa-gear"></i>
       </button>
       <button class="button button-ghost sidebar-logout" type="button" data-logout title="Sign out">
         <i class="fa-solid fa-right-from-bracket"></i> Sign out
@@ -107,6 +119,8 @@ bodyClass: app-body
           title="Recipe mode" aria-label="Recipe mode" hidden><i class="fa-solid fa-book-open"></i></button>
         <button class="mode-btn mode-btn-icon" data-mode="mealplan" type="button" data-mealplan-mode-btn
           title="Meal plan mode" aria-label="Meal plan mode" hidden><i class="fa-solid fa-bowl-food"></i></button>
+        <button class="mode-btn mode-btn-icon" data-mode="meeting" type="button" data-meeting-mode-btn
+          title="Meeting mode" aria-label="Meeting mode" hidden><i class="fa-solid fa-users"></i></button>
         <button class="mode-btn mode-btn-icon" data-mode="todo" type="button"
           title="Checklist mode" aria-label="Checklist mode"><i class="fa-solid fa-list-check"></i></button>
         <button class="mode-btn is-active" data-mode="edit" type="button">Edit</button>
@@ -185,7 +199,29 @@ bodyClass: app-body
       </div>
       <div class="mealplan-scroll" data-mealplan-grid></div>
     </div>
+
+    <div class="editor-meeting" data-meeting-pane hidden>
+      <div class="meeting-scroll" data-meeting-body></div>
+    </div>
   </main>
+
+  <div class="app-agenda" data-agenda-pane hidden>
+    <div class="agenda-toolbar">
+      <div class="agenda-title">
+        <strong>Agenda</strong>
+        <span class="agenda-sub" data-agenda-sub></span>
+      </div>
+      <div class="agenda-actions">
+        <button class="todo-mini" type="button" data-agenda-refresh title="Rescan notes" aria-label="Rescan">
+          <i class="fa-solid fa-rotate"></i>
+        </button>
+        <button class="todo-mini" type="button" data-agenda-close title="Close agenda" aria-label="Close">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+    </div>
+    <div class="agenda-scroll" data-agenda-list></div>
+  </div>
 
   <div class="app-empty" data-empty-state>
     <div>

@@ -73,16 +73,20 @@ All optional; any `- [ ]` line is still a plain checklist item and renders fine
 in Preview and in the existing Checklist mode. The planner slice (below) uses
 `HH:MM` + `!`; meetings add `due:` + `@`.
 
-## 3. The Agenda (passive)
+## 3. The Agenda (passive)  ✅ implemented
 
-A read-only dashboard that scans every note for `- [ ]` lines with a `due:` (or a
-planner time for today) and lists **what's due today / this week / overdue**,
-each linking back to its note. No scheduler, no push — you open it, it tells you.
-It can be computed entirely client-side from the existing note list + reads, or
-later backed by a `GET /api/agenda?repo=…` endpoint that greps the working tree
-server-side for speed. (If active push is ever wanted, the same scan runs in a
-backend cron and delivers via the existing Nextcloud Talk / TARS bot — but that
-is explicitly out of scope here.)
+A read-only dashboard that scans every note for open `- [ ]` lines carrying a
+`due:` date and lists **Overdue / Today / This week / Later**, each row linking
+back to its note. No scheduler, no push — you open it (calendar-day button in the
+header), it tells you. It prefers a **server-side scan** — `GET /api/agenda?repo=…`
+walks the working tree once and returns all open, due-dated items (one request
+instead of N; fast on large repos) — and **falls back to a client-side scan**
+(fetch every note, grep in the browser) if the endpoint is absent (older
+backend). Grouping into Overdue / Today / This week / Later happens on the client
+so it tracks the user's local clock. The server and client use the *same* token
+grammar so results are identical. (If active push is ever wanted, the same scan
+runs in a backend cron and delivers via the existing Nextcloud Talk / TARS bot —
+explicitly out of scope here.)
 
 ---
 
@@ -143,13 +147,20 @@ opens or creates the current week.*
   scaffolds the current week. New notes under `recipes/`, `meal-plans/` and
   `planner/` are pre-filled with the right scaffold.*
 
-### C. Meeting notes + follow-ups  (next)
+### C. Meeting notes + follow-ups  ✅ implemented (third slice)
 
 - `meetings/2026-08-03-standup.md`, `type: meeting`, frontmatter `date`,
-  `attendees`, `project`. Body has free notes plus an **Action items** checklist
-  using `due:` and `@`. Meeting view = notes on top, action items below with a
-  date picker that writes `due:YYYY-MM-DD`. Those items are exactly what the
-  Agenda aggregates.
+  `attendees`, `project`. Body has a `## Notes` section (free markdown) plus an
+  `## Action items` checklist using the shared grammar (`due:` / `@` / `!`). The
+  **Meeting view** shows a header card (title + date/project/attendees chips),
+  the rendered notes, and the action items below as an interactive list: check,
+  inline-edit text (typed `due:`/`@`/`!` tokens are re-parsed, not left literal),
+  a native **date picker** that writes `due:YYYY-MM-DD` (overdue red / today
+  amber), owner chips, star, delete, and an add box. Only the action-items
+  section is rewritten in-view; free-form notes are preserved verbatim. These
+  items are exactly what the Agenda aggregates.
+
+  *Reachable via New → Meeting (creates `meetings/<today>-meeting.md`).*
 
 ---
 
@@ -165,3 +176,10 @@ opens or creates the current week.*
   the single source of truth so undo/redo, autosave and 3-way merge are free.
 - **Mobile-first.** Reuse the `.todo-*` row/card idiom (big tap targets, stacked
   layout, ≥16px inputs to avoid iOS zoom, sync pill for save state).
+- **Creation & navigation.** A single header **New** menu creates every note
+  type (Note / Weekly plan / Meal plan / Recipe / Meeting), each pre-filled with
+  the right scaffold and opened in its view. The **Agenda** is a header button.
+- **Configurable auto-sync.** Autosave is user-configurable via a Settings
+  popover (gear in the sidebar): on/off plus the idle delay before a save fires
+  (default 12s, clamped 3–300s), persisted in `localStorage`. Off = manual save
+  (Save button / Ctrl+S); the beforeunload guard still protects unsaved work.
