@@ -230,7 +230,14 @@ html.app-root {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 300px 1fr;
+  /* minmax(0, …) on BOTH axes: a grid track's default min is `auto`, which lets a
+   * wide/tall pane expand the track past the container. Capping min at 0 keeps the
+   * editor column at the viewport width and the row at the viewport height, so
+   * panes scroll *inside* their own scroll container instead of growing the layout
+   * (which cut off content-rich views — agenda, meal plan, meeting — and pushed
+   * the toolbar / its pop-out menus off-screen). */
+  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 /* The mobile drawer affordances are inert on desktop. */
@@ -1807,7 +1814,7 @@ html.app-root {
   /* Single column: the editor (or empty state) gets the full area, and the
    * note browser becomes a slide-in drawer overlaid on top of it. */
   .app-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     position: relative;
   }
   .app-editor, .app-empty, .app-agenda {
@@ -1843,6 +1850,25 @@ html.app-root {
   .editor-body[data-view="split"] .editor-preview { display: none; }
   .app-header-actions .btn-label { display: none; }
   .git-pill { display: none; }
+
+  /* Keep the whole action row on-screen: drop the brand text (mark stays as the
+   * app glyph), tighten spacing, and shrink the icon buttons so nothing — least
+   * of all Save — gets pushed past the right edge. */
+  .app-header { padding: 0 10px; gap: 8px; position: relative; z-index: 40; }
+  .brand span:not(.brand-mark) { display: none; }
+  .app-header .brand-mark { width: 30px; height: 30px; }
+  .app-header-actions { gap: 5px; min-width: 0; }
+  .app-header-actions .button { padding: 9px 10px; }
+
+  /* Pop-out menus: anchor to the toolbar/header right edge (a full-width
+   * positioned ancestor) instead of the button, so a 190px menu never runs off
+   * the left of a narrow screen (e.g. the toolbox on the meal-plan view). */
+  .editor-toolbar { position: relative; }
+  .insert-wrap { position: static; }
+  .insert-menu { right: 10px; left: auto; top: calc(100% + 4px); }
+  .new-wrap { position: static; }
+  .new-menu { right: 10px; left: auto; top: calc(100% + 4px); }
+  .insert-menu, .new-menu { max-width: calc(100vw - 20px); }
   /* Split view is pointless on a narrow screen; reclaim the toolbar space. */
   .mode-btn[data-mode="split"] { display: none; }
   /* The filename is desktop-only — hide it so the undo/redo + mode controls fit. */

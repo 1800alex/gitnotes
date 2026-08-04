@@ -50,6 +50,20 @@ A running list of gaps and improvements, roughly ranked. Born from a review on
    paused chore reads as "done" in the raw markdown. A `paused:` token or an
    archived section would be clearer if it ever confuses.
 
+## Fixed — mobile layout
+
+- **Header actions clipped** ✅ the action row overflowed and pushed Save off-screen
+  with no way to scroll. On mobile the brand text is dropped (mark stays) and the
+  icon buttons/spacing tightened so the whole row fits.
+- **Content-rich views wouldn't scroll** ✅ agenda / meal plan / meeting panes grew
+  the layout grid instead of scrolling internally (a grid track's default `auto`
+  min). Capped both axes with `minmax(0, 1fr)` so panes scroll in their own
+  container and the layout never exceeds the viewport.
+- **Pop-out menus off-screen** ✅ the toolbox/New menus anchored to their button and
+  ran off the edge; they now anchor to the toolbar/header right edge on mobile.
+- Covered by `mobile.spec.js` regressions (header fits, agenda scrolls, meal-plan
+  scrolls + toolbox opens on-screen).
+
 ## Solid — don't second-guess
 
 Typed-view architecture (parse→render→commit, textarea as source of truth),
