@@ -1446,6 +1446,74 @@ html.app-root {
   font-size: .82rem;
 }
 .draft-discard:hover { background: #d4a017; color: #fff; }
+
+/* ---- modal (typed-confirmation dialog) ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 15, 15, .55);
+}
+.modal {
+  width: min(440px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  background: var(--white);
+  border: 1px solid var(--line-light);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .35);
+  padding: 20px clamp(16px, 4vw, 24px);
+}
+.modal-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-heading);
+  font-size: 1.25rem;
+  margin: 0 0 10px;
+}
+.modal-title.danger { color: #c0392b; }
+.modal-body { color: var(--ink); font-size: .92rem; line-height: 1.5; margin: 0 0 14px; }
+.modal-body strong { overflow-wrap: anywhere; }
+.modal-label { display: block; font-size: .86rem; color: var(--muted); margin-bottom: 6px; }
+.modal-label code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  background: var(--paper-2);
+  padding: 1px 5px;
+  overflow-wrap: anywhere;
+}
+.modal-input {
+  width: 100%;
+  font: inherit;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  padding: 10px;
+  border: 1px solid var(--line-light);
+  background: var(--paper);
+  color: var(--ink);
+  min-height: 44px;
+}
+.modal-input:focus { outline: 2px solid #c0392b; outline-offset: -1px; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.button-danger {
+  background: #c0392b;
+  color: #fff;
+  border-color: #c0392b;
+}
+.button-danger:hover, .button-danger:focus-visible { background: #a93226; border-color: #a93226; }
+.button-danger:disabled {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--line-light);
+  cursor: not-allowed;
+  transform: none;
+}
+@media (max-width: 480px) {
+  .modal-foot { flex-direction: column-reverse; }
+  .modal-foot .button { width: 100%; }
+}
 @media (prefers-color-scheme: dark) {
   .draft-banner { background: #3a3413; border-bottom-color: #5c5320; color: #e8d98a; }
   .draft-banner i { color: #e8c14b; }

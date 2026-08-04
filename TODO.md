@@ -29,9 +29,11 @@ A running list of gaps and improvements, roughly ranked. Born from a review on
    git-LFS) and relative-image resolution is still deferred. Decide the story
    before the repo gets heavy; pasting a phone screenshot is a common action.
 
-5. **No undo for a delete.** Delete is a `git rm` — recoverable from the CLI,
-   invisible from the UI. A soft-delete/trash or "restore last deleted" matches
-   how mistakes happen on a phone.
+5. **Deleting is easy to fat-finger.** ✅ *(done — hardened)* Delete now requires
+   typing the note's **exact path** to confirm (GitHub-style modal); the button
+   stays locked until it matches, Escape/Cancel/backdrop abort, and the local
+   draft is cleared on delete. Still a `git rm` under the hood, so a UI **restore
+   from git history** (recover a deleted note) remains a nice follow-up.
 
 6. **Backlinks / wikilinks / a tag view.** `#tag` exists in the grammar and
    inter-note link navigation is deferred. This is what turns a pile of files

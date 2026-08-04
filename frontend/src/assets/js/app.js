@@ -3154,18 +3154,105 @@
     }, 0);
   }
 
+  // A GitHub-style destructive-action confirm: you must type the note's exact
+  // path before the Delete button unlocks. Deleting commits the removal to git,
+  // which is easy to fat-finger on a phone — this makes it deliberate. Returns a
+  // Promise<boolean>.
+  function confirmDeleteNote(path) {
+    return new Promise((resolve) => {
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      const modal = document.createElement("div");
+      modal.className = "modal delete-modal";
+      modal.setAttribute("role", "dialog");
+      modal.setAttribute("aria-modal", "true");
+      modal.setAttribute("aria-labelledby", "delmodal-title");
+
+      const h = document.createElement("h2");
+      h.id = "delmodal-title";
+      h.className = "modal-title danger";
+      h.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Delete note';
+
+      const body = document.createElement("p");
+      body.className = "modal-body";
+      body.append(document.createTextNode("This permanently deletes "));
+      const strong = document.createElement("strong");
+      strong.textContent = path;
+      body.append(strong, document.createTextNode(" and commits the removal to git. This can’t be undone from the app."));
+
+      const label = document.createElement("label");
+      label.className = "modal-label";
+      label.setAttribute("for", "delmodal-input");
+      label.append(document.createTextNode("Type "));
+      const code = document.createElement("code");
+      code.textContent = path;
+      label.append(code, document.createTextNode(" to confirm."));
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.id = "delmodal-input";
+      input.className = "modal-input";
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.setAttribute("autocapitalize", "off");
+      input.setAttribute("autocorrect", "off");
+
+      const foot = document.createElement("div");
+      foot.className = "modal-foot";
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "button button-ghost";
+      cancel.textContent = "Cancel";
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "button button-danger";
+      del.textContent = "Delete this note";
+      del.disabled = true;
+      foot.append(cancel, del);
+
+      modal.append(h, body, label, input, foot);
+      backdrop.appendChild(modal);
+      document.body.appendChild(backdrop);
+
+      let done = false;
+      const close = (result) => {
+        if (done) return;
+        done = true;
+        document.removeEventListener("keydown", onKey, true);
+        backdrop.remove();
+        resolve(result);
+      };
+      const matches = () => input.value.trim() === path;
+      input.addEventListener("input", () => { del.disabled = !matches(); });
+      function onKey(e) {
+        if (e.key === "Escape") { e.preventDefault(); close(false); }
+        else if (e.key === "Enter" && matches()) { e.preventDefault(); close(true); }
+      }
+      document.addEventListener("keydown", onKey, true);
+      backdrop.addEventListener("mousedown", (e) => { if (e.target === backdrop) close(false); });
+      cancel.addEventListener("click", () => close(false));
+      del.addEventListener("click", () => { if (matches()) close(true); });
+
+      input.focus();
+    });
+  }
+
   async function deleteNote() {
     if (!current) return;
-    if (!confirm('Delete "' + current.path + '"? This commits the deletion to git.')) return;
     const path = current.path;
-    // A never-saved new note isn't on disk yet — just discard it.
+    // A never-saved new note isn't on disk yet — a light confirm is enough (and
+    // drop any local draft so it doesn't resurrect on reopen).
     const exists = notes.some((n) => n.path === path);
     if (!exists) {
+      if (!confirm('Discard this unsaved note “' + path + '”?')) return;
+      clearDraft(path);
       closeNote();
       return;
     }
+    if (!(await confirmDeleteNote(path))) return;
     try {
       const res = await Api.deleteNote(currentRepo, path);
+      clearDraft(path); // a deleted note shouldn't leave a resurrectable draft
       describeGit(res.git);
       closeNote();
       loadList();

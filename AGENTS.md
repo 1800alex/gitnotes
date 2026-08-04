@@ -148,6 +148,9 @@ seed fixture representative. If you change the action grammar, update *both*
 
 - The `<textarea>` is the source of truth; never mutate a typed model without writing
   it back and re-rendering (`commitX`).
+- Deleting a note goes through a **typed-path confirmation modal** (`confirmDeleteNote`)
+  — the delete commits a `git rm`, so it's gated behind typing the exact path. Keep
+  that gate; don't revert it to a bare `confirm()`.
 - Typed views are **per-note, not sticky** — never boot into one; the note re-selects
   it on open.
 - `resolvePath` must stay containment-safe with **relative** `NOTES_REPO`.
