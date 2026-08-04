@@ -43,6 +43,13 @@
   const plannerWeekEl = $("[data-planner-week]");
   const plannerRangeEl = $("[data-planner-range]");
   const plannerModeBtn = $("[data-planner-mode-btn]");
+  const recipePane = $("[data-recipe-pane]");
+  const recipeBodyEl = $("[data-recipe-body]");
+  const recipeModeBtn = $("[data-recipe-mode-btn]");
+  const mealplanPane = $("[data-mealplan-pane]");
+  const mealplanGridEl = $("[data-mealplan-grid]");
+  const mealplanWeekEl = $("[data-mealplan-week]");
+  const mealplanModeBtn = $("[data-mealplan-mode-btn]");
 
   // ---- state ----
   let repos = [];
@@ -50,13 +57,15 @@
   let notes = [];
   let current = null; // { path, content }
   let dirty = false;
-  const MODES = ["edit", "split", "preview", "todo", "planner"];
+  const MODES = ["edit", "split", "preview", "todo", "planner", "recipe", "mealplan"];
+  // Views tied to a note's type — selected when such a note opens, not sticky.
+  const TYPED_MODES = ["planner", "recipe", "mealplan"];
   let mode = MODES.includes(localStorage.getItem("notes.mode"))
     ? localStorage.getItem("notes.mode")
     : "edit";
-  // Planner is a per-note view, not a sticky default: never boot into it (a
-  // planner note re-selects it on open).
-  if (mode === "planner") mode = "edit";
+  // Typed views are per-note, not a sticky default: never boot into one (the
+  // matching note re-selects it on open).
+  if (TYPED_MODES.includes(mode)) mode = "edit";
 
   // marked: render markdown but keep it reasonably safe-ish for personal use.
   if (window.marked) {
@@ -345,15 +354,25 @@
     });
   }
 
+  // Secondary views live in their own panes (not the edit/split/preview
+  // container). Map each to its pane so setMode can show exactly one.
+  const SECONDARY_PANES = {
+    todo: () => todoPane,
+    planner: () => plannerPane,
+    recipe: () => recipePane,
+    mealplan: () => mealplanPane,
+  };
+
   function setMode(next) {
+    if (typeof closeCellPicker === "function") closeCellPicker();
     mode = next;
     localStorage.setItem("notes.mode", next);
-    const isTodo = next === "todo";
-    const isPlanner = next === "planner";
-    modeContainer.hidden = isTodo || isPlanner;
-    todoPane.hidden = !isTodo;
-    plannerPane.hidden = !isPlanner;
-    if (!isTodo && !isPlanner) modeContainer.dataset.view = next;
+    const isSecondary = !!SECONDARY_PANES[next];
+    modeContainer.hidden = isSecondary;
+    for (const [name, el] of Object.entries(SECONDARY_PANES)) {
+      el().hidden = name !== next;
+    }
+    if (!isSecondary) modeContainer.dataset.view = next;
     document.querySelectorAll(".mode-btn").forEach((b) =>
       b.classList.toggle("is-active", b.dataset.mode === next)
     );
@@ -365,6 +384,8 @@
     if (mode === "split" || mode === "preview") renderPreview();
     else if (mode === "todo") renderTodos();
     else if (mode === "planner") renderPlanner();
+    else if (mode === "recipe") renderRecipe();
+    else if (mode === "mealplan") renderMealplan();
   }
 
   function showEditor() {
@@ -708,23 +729,540 @@
       const t = /(^|\n)type:\s*(\w+)/.exec(fm[1]);
       if (t) return t[2];
     }
-    if (/^planner\//.test(path || "")) return "planner";
+    const p = path || "";
+    if (/^planner\//.test(p)) return "planner";
+    if (/^recipes\//.test(p)) return "recipe";
+    if (/^meal-plans\//.test(p)) return "mealplan";
     return "";
   }
 
   // Show/hide type-specific toolbar affordances for the open note.
   function setNoteChrome(type) {
     if (plannerModeBtn) plannerModeBtn.hidden = type !== "planner";
+    if (recipeModeBtn) recipeModeBtn.hidden = type !== "recipe";
+    if (mealplanModeBtn) mealplanModeBtn.hidden = type !== "mealplan";
   }
 
-  // Pick the right view when a note opens: planner notes get the planner; other
-  // notes leave the planner view (so it isn't stuck on a non-planner note).
+  // Pick the right view when a note opens: a typed note gets its view; opening a
+  // plain note leaves any typed view so it isn't stuck on the wrong note.
   function autoSelectMode(path, content) {
     const t = noteType(path, content);
     setNoteChrome(t);
-    if (t === "planner") { setMode("planner"); return; }
-    if (mode === "planner") { setMode("edit"); return; }
+    if (TYPED_MODES.includes(t)) { setMode(t); return; }
+    if (TYPED_MODES.includes(mode)) { setMode("edit"); return; }
     refreshModeView();
+  }
+
+  // Pretty title from a file path: "sheet-pan-chicken.md" → "Sheet Pan Chicken".
+  function titleFromPath(p) {
+    const base = (p || "").split("/").pop().replace(/\.md$/i, "");
+    return base.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  function renderMd(md) {
+    if (window.marked) return window.marked.parse(md || "");
+    const pre = document.createElement("pre");
+    pre.textContent = md || "";
+    return pre.outerHTML;
+  }
+
+  // ---- recipe mode ----
+  // A recipe note: front-matter (servings/time/tags), a title, optional intro,
+  // an "## Ingredients" checklist and a "## Steps" list. The view is a read-
+  // optimised card; ticking an ingredient rewrites its markdown line (handy
+  // while cooking or shopping). Prose/steps are edited in Edit mode.
+  let recipeModel = null;
+
+  function parseRecipe(text) {
+    const lines = text.split("\n");
+    let i = 0;
+    const front = [];
+    if (lines[0] !== undefined && lines[0].trim() === "---") {
+      front.push(lines[0]); i = 1;
+      while (i < lines.length && lines[i].trim() !== "---") front.push(lines[i++]);
+      if (i < lines.length) { front.push(lines[i]); i++; }
+    }
+    const frontText = front.join("\n");
+    const field = (k) => {
+      const m = new RegExp("(^|\\n)" + k + ":\\s*(.+)").exec(frontText);
+      return m ? m[2].trim() : "";
+    };
+    let tags = field("tags");
+    if (/^\[.*\]$/.test(tags)) tags = tags.slice(1, -1);
+    const tagList = tags ? tags.split(",").map((s) => s.trim()).filter(Boolean) : [];
+
+    let title = "";
+    const intro = [], ingredients = [], steps = [];
+    let section = null; // null (pre-title/intro) | "ing" | "steps" | "other"
+    for (; i < lines.length; i++) {
+      const line = lines[i];
+      const h1 = /^#\s+(.*)$/.exec(line);
+      const h2 = /^##\s+(.*)$/.exec(line);
+      if (h1 && !title) { title = h1[1].trim(); continue; }
+      if (h2) {
+        const n = h2[1].trim().toLowerCase();
+        section = /^ingredient/.test(n) ? "ing"
+          : /^(step|method|direction|instruction)/.test(n) ? "steps" : "other";
+        continue;
+      }
+      if (section === "ing") {
+        const m = /^\s*[-*+]\s+(?:\[([ xX])\]\s+)?(.*)$/.exec(line);
+        if (m) ingredients.push({ pos: i, checked: (m[1] || "").toLowerCase() === "x", text: m[2] });
+        continue;
+      }
+      if (section === "steps") { if (line.trim() !== "") steps.push(line); continue; }
+      if (!section) intro.push(line);
+    }
+    return {
+      lines, title, intro, ingredients, steps,
+      servings: field("servings"), time: field("time"), tags: tagList,
+    };
+  }
+
+  function toggleIngredient(pos) {
+    const m = /^(\s*[-*+]\s+)(?:\[([ xX])\]\s+)?(.*)$/.exec(recipeModel.lines[pos]);
+    if (!m) return;
+    const checked = (m[2] || "").toLowerCase() === "x";
+    recipeModel.lines[pos] = m[1] + "[" + (checked ? " " : "x") + "] " + m[3];
+    textarea.value = recipeModel.lines.join("\n");
+    setDirty(true);
+    if (mode === "split" || mode === "preview") renderPreview();
+    renderRecipe();
+    recordHistory();
+  }
+
+  function chip(icon, label) {
+    const s = document.createElement("span");
+    s.className = "recipe-chip";
+    const ic = document.createElement("i");
+    ic.className = "fa-solid " + icon;
+    s.appendChild(ic);
+    s.appendChild(document.createTextNode(" " + label));
+    return s;
+  }
+
+  function renderRecipe() {
+    if (!current) return;
+    recipeModel = parseRecipe(textarea.value);
+    const m = recipeModel;
+    recipeBodyEl.textContent = "";
+    const card = document.createElement("div");
+    card.className = "recipe-card";
+
+    const h = document.createElement("h1");
+    h.className = "recipe-title";
+    h.textContent = m.title || titleFromPath(current.path);
+    card.appendChild(h);
+
+    if (m.servings || m.time || m.tags.length) {
+      const meta = document.createElement("div");
+      meta.className = "recipe-meta";
+      if (m.servings) {
+        const s = /[a-z]/i.test(m.servings) ? m.servings : m.servings + " servings";
+        meta.appendChild(chip("fa-user-group", s));
+      }
+      if (m.time) meta.appendChild(chip("fa-clock", m.time));
+      m.tags.forEach((t) => meta.appendChild(chip("fa-tag", t)));
+      card.appendChild(meta);
+    }
+
+    const introMd = m.intro.join("\n").trim();
+    if (introMd) {
+      const d = document.createElement("div");
+      d.className = "recipe-intro markdown-body";
+      d.innerHTML = renderMd(introMd);
+      card.appendChild(d);
+    }
+
+    if (m.ingredients.length) {
+      const sec = document.createElement("div");
+      sec.className = "recipe-section";
+      const sh = document.createElement("h2");
+      sh.textContent = "Ingredients";
+      sec.appendChild(sh);
+      const ul = document.createElement("ul");
+      ul.className = "recipe-ings";
+      m.ingredients.forEach((ing) => {
+        const li = document.createElement("li");
+        li.className = "recipe-ing" + (ing.checked ? " checked" : "");
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "recipe-check";
+        b.innerHTML = '<i class="fa-solid fa-check"></i>';
+        b.setAttribute("aria-label", ing.checked ? "Uncheck" : "Check off");
+        b.addEventListener("click", () => toggleIngredient(ing.pos));
+        const sp = document.createElement("span");
+        sp.className = "recipe-ing-text";
+        sp.textContent = ing.text;
+        li.append(b, sp);
+        ul.appendChild(li);
+      });
+      sec.appendChild(ul);
+      card.appendChild(sec);
+    }
+
+    const stepsMd = m.steps.join("\n").trim();
+    if (stepsMd) {
+      const sec = document.createElement("div");
+      sec.className = "recipe-section";
+      const sh = document.createElement("h2");
+      sh.textContent = "Steps";
+      sec.appendChild(sh);
+      const d = document.createElement("div");
+      d.className = "recipe-steps markdown-body";
+      d.innerHTML = renderMd(stepsMd);
+      sec.appendChild(d);
+      card.appendChild(sec);
+    }
+    recipeBodyEl.appendChild(card);
+  }
+
+  function recipeScaffold(title) {
+    return [
+      "---", "type: recipe", "servings: 4", "time: 30m", "tags: []", "---",
+      "# " + title, "", "## Ingredients", "- [ ] ", "", "## Steps", "1. ", "",
+    ].join("\n");
+  }
+
+  // ---- meal-plan mode ----
+  // A meal-plan note: front-matter (week) + a markdown table (Day × meals) whose
+  // cells are recipe links or free text. The view renders day cards with tappable
+  // meal slots; a picker sets each slot from the recipes/ folder or custom text.
+  // "Shopping list" reads the linked recipes' ingredients into a new checklist.
+  let mealplanModel = null;
+
+  function parseCell(s) {
+    s = (s || "").trim();
+    if (!s) return null;
+    const m = /\[([^\]]*)\]\(([^)]*)\)/.exec(s);
+    if (m) return { label: m[1], path: m[2] };
+    return { label: s, path: "" };
+  }
+  function serializeCell(c) {
+    if (!c) return "";
+    return c.path ? "[" + c.label + "](" + c.path + ")" : c.label;
+  }
+  function tableCells(row) {
+    return row.trim().replace(/^\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
+  }
+
+  function parseMealplan(text) {
+    const lines = text.split("\n");
+    let i = 0;
+    const front = [];
+    if (lines[0] !== undefined && lines[0].trim() === "---") {
+      front.push(lines[0]); i = 1;
+      while (i < lines.length && lines[i].trim() !== "---") front.push(lines[i++]);
+      if (i < lines.length) { front.push(lines[i]); i++; }
+    }
+    let week = null;
+    const wl = front.join("\n").match(/week:\s*(\d{4})-W(\d{2})/);
+    if (wl) week = { year: +wl[1], week: +wl[2] };
+
+    const intro = [], tail = [];
+    let ti = -1;
+    for (let j = i; j < lines.length; j++) {
+      if (/^\s*\|/.test(lines[j])) { ti = j; break; }
+      intro.push(lines[j]);
+    }
+    if (ti === -1) return { front, intro, meals: [], days: [], tail, week };
+
+    const rows = [];
+    let j = ti;
+    while (j < lines.length && /^\s*\|/.test(lines[j])) { rows.push(lines[j]); j++; }
+    for (; j < lines.length; j++) tail.push(lines[j]);
+
+    const meals = tableCells(rows[0]).slice(1);
+    const days = [];
+    for (let r = 2; r < rows.length; r++) { // row 1 is the --- separator
+      const c = tableCells(rows[r]);
+      const name = c[0];
+      if (!name && c.every((x) => !x)) continue;
+      const cells = {};
+      meals.forEach((mn, idx) => { cells[mn] = parseCell(c[idx + 1] || ""); });
+      days.push({ name, cells });
+    }
+    return { front, intro, meals, days, tail, week };
+  }
+
+  function serializeMealplan(m) {
+    const out = [];
+    if (m.front.length) out.push(...m.front);
+    const intro = m.intro.join("\n").replace(/^\n+|\n+$/g, "");
+    if (intro) { out.push(intro, ""); } else if (m.front.length) out.push("");
+    const meals = m.meals.length ? m.meals : ["Breakfast", "Lunch", "Dinner"];
+    out.push("| Day | " + meals.join(" | ") + " |");
+    out.push("| --- | " + meals.map(() => "---").join(" | ") + " |");
+    for (const d of m.days) {
+      out.push("| " + d.name + " | " + meals.map((mn) => serializeCell(d.cells[mn])).join(" | ") + " |");
+    }
+    if (m.tail.length) { out.push("", ...m.tail); }
+    return out.join("\n").replace(/\n{3,}/g, "\n\n");
+  }
+
+  function commitMealplan() {
+    textarea.value = serializeMealplan(mealplanModel);
+    setDirty(true);
+    if (mode === "split" || mode === "preview") renderPreview();
+    renderMealplan();
+    recordHistory();
+  }
+
+  // Recipes available to link, as {label, rel} where rel is relative to the open
+  // meal-plan note (so the stored link resolves back to the recipe).
+  function recipeChoices() {
+    const dir = current.path.includes("/") ? current.path.slice(0, current.path.lastIndexOf("/")) : "";
+    const up = dir ? dir.split("/").length : 0;
+    const prefix = "../".repeat(up);
+    return notes
+      .filter((n) => /^recipes\//.test(n.path))
+      .map((n) => ({ label: titleFromPath(n.path), rel: prefix + n.path }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  function setCell(dayName, mealName, val) {
+    const d = mealplanModel.days.find((x) => x.name === dayName);
+    if (!d) return;
+    d.cells[mealName] = val;
+    commitMealplan();
+  }
+
+  function openLinkedNote(linkPath) {
+    openNote(resolveRelPath(current.path, linkPath));
+  }
+
+  // --- cell picker popover ---
+  let cellPicker = null;
+  function closeCellPicker() {
+    if (!cellPicker) return;
+    cellPicker.remove();
+    cellPicker = null;
+    document.removeEventListener("click", onPickerDocClick, true);
+    document.removeEventListener("keydown", onPickerKey, true);
+  }
+  function onPickerDocClick(e) { if (cellPicker && !cellPicker.contains(e.target)) closeCellPicker(); }
+  function onPickerKey(e) { if (e.key === "Escape") closeCellPicker(); }
+
+  function pickerButton(iconClass, label, onClick) {
+    const b = document.createElement("button");
+    b.type = "button";
+    const ic = document.createElement("i");
+    ic.className = iconClass;
+    b.appendChild(ic);
+    b.appendChild(document.createTextNode(" " + label));
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function openCellPicker(anchor, dayName, mealName) {
+    closeCellPicker();
+    const cur = (mealplanModel.days.find((d) => d.name === dayName) || {}).cells;
+    const pop = document.createElement("div");
+    pop.className = "cell-picker";
+
+    const head = document.createElement("div");
+    head.className = "cell-picker-head";
+    head.textContent = dayName + " · " + mealName;
+    pop.appendChild(head);
+
+    const list = document.createElement("div");
+    list.className = "cell-picker-list";
+    const choices = recipeChoices();
+    if (!choices.length) {
+      const p = document.createElement("div");
+      p.className = "cell-picker-empty";
+      p.textContent = "No recipes yet — add notes under recipes/.";
+      list.appendChild(p);
+    }
+    choices.forEach((r) => {
+      list.appendChild(pickerButton("fa-solid fa-book-open", r.label, () => {
+        setCell(dayName, mealName, { label: r.label, path: r.rel });
+        closeCellPicker();
+      }));
+    });
+    pop.appendChild(list);
+
+    const foot = document.createElement("div");
+    foot.className = "cell-picker-foot";
+    foot.appendChild(pickerButton("fa-solid fa-pen", "Custom text…", () => {
+      const existing = cur && cur[mealName] ? cur[mealName].label : "";
+      closeCellPicker();
+      const v = prompt("Text for " + dayName + " " + mealName + " (e.g. Leftovers):", existing);
+      if (v === null) return;
+      setCell(dayName, mealName, v.trim() ? { label: v.trim(), path: "" } : null);
+    }));
+    if (cur && cur[mealName]) {
+      foot.appendChild(pickerButton("fa-solid fa-xmark", "Clear", () => {
+        setCell(dayName, mealName, null);
+        closeCellPicker();
+      }));
+    }
+    pop.appendChild(foot);
+
+    document.body.appendChild(pop);
+    const r = anchor.getBoundingClientRect();
+    const w = Math.min(300, window.innerWidth - 16);
+    pop.style.width = w + "px";
+    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + "px";
+    pop.style.top = r.bottom + 4 + "px";
+    cellPicker = pop;
+    setTimeout(() => {
+      document.addEventListener("click", onPickerDocClick, true);
+      document.addEventListener("keydown", onPickerKey, true);
+    }, 0);
+  }
+
+  function renderMealplan() {
+    if (!current) return;
+    closeCellPicker();
+    mealplanModel = parseMealplan(textarea.value);
+    const wk = mealplanModel.week || weekFromPath(current.path);
+    mealplanWeekEl.textContent = wk ? "Meal plan · Week " + wk.week : "Meal plan";
+    const meals = mealplanModel.meals.length ? mealplanModel.meals : ["Breakfast", "Lunch", "Dinner"];
+
+    mealplanGridEl.textContent = "";
+    if (!mealplanModel.days.length) {
+      const p = document.createElement("p");
+      p.className = "todo-empty";
+      p.textContent = "No days yet — use the Meals button to scaffold a week, or add a table in Edit mode.";
+      mealplanGridEl.appendChild(p);
+      return;
+    }
+    mealplanModel.days.forEach((day) => {
+      const card = document.createElement("section");
+      card.className = "mp-day";
+      const head = document.createElement("div");
+      head.className = "mp-day-head";
+      head.textContent = day.name;
+      card.appendChild(head);
+      meals.forEach((mn) => {
+        const cell = day.cells[mn] || null;
+        const slot = document.createElement("div");
+        slot.className = "mp-slot";
+        const lab = document.createElement("span");
+        lab.className = "mp-meal";
+        lab.textContent = mn;
+        const val = document.createElement("button");
+        val.type = "button";
+        val.className = "mp-value" + (cell ? "" : " empty");
+        if (cell && cell.path) {
+          val.classList.add("is-recipe");
+          val.textContent = cell.label;
+          val.title = "Open " + cell.label;
+          val.addEventListener("click", () => openLinkedNote(cell.path));
+        } else {
+          val.textContent = cell ? cell.label : "+ Add";
+          val.addEventListener("click", (e) => openCellPicker(e.currentTarget, day.name, mn));
+        }
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "mp-edit";
+        edit.innerHTML = '<i class="fa-solid fa-chevron-down"></i>';
+        edit.setAttribute("aria-label", "Change " + mn);
+        edit.addEventListener("click", (e) => openCellPicker(e.currentTarget, day.name, mn));
+        slot.append(lab, val, edit);
+        card.appendChild(slot);
+      });
+      mealplanGridEl.appendChild(card);
+    });
+  }
+
+  function mealplanScaffold(year, week) {
+    const out = [
+      "---", "type: mealplan", "week: " + year + "-W" + pad2(week), "---", "",
+      "# Meal plan · Week " + week, "",
+      "| Day | Breakfast | Lunch | Dinner |",
+      "| --- | --- | --- | --- |",
+    ];
+    for (const d of DAY_NAMES) out.push("| " + d + " |  |  |  |");
+    return out.join("\n");
+  }
+
+  async function openMealplanWeek(year, week) {
+    const path = "meal-plans/" + year + "-W" + pad2(week) + ".md";
+    if (notes.some((n) => n.path === path)) { openNote(path); return; }
+    if (dirty && !confirm("Discard unsaved changes?")) return;
+    current = { path, content: "" };
+    localStorage.setItem(lastNoteKey(), path);
+    textarea.value = mealplanScaffold(year, week);
+    resetHistory();
+    currentPathEl.textContent = path;
+    setNoteChrome("mealplan");
+    showEditor();
+    closeSidebar();
+    setDirty(false);
+    setMode("mealplan");
+    renderList();
+  }
+
+  // Read the "## Ingredients" checklist out of a recipe's markdown, de-duping
+  // by normalised text. (Quantities aren't parsed, so they aren't combined.)
+  function collectIngredients(content, seen) {
+    const lines = (content || "").split("\n");
+    let inIng = false;
+    for (const line of lines) {
+      const h2 = /^##\s+(.*)$/.exec(line);
+      if (h2) { inIng = /^ingredient/i.test(h2[1].trim()); continue; }
+      if (!inIng) continue;
+      const m = /^\s*[-*+]\s+(?:\[[ xX]\]\s+)?(.*)$/.exec(line);
+      if (m) {
+        const text = m[1].trim();
+        if (text && !seen.has(text.toLowerCase())) seen.set(text.toLowerCase(), text);
+      }
+    }
+  }
+
+  async function generateShoppingList() {
+    if (!current) return;
+    const model = parseMealplan(textarea.value);
+    const paths = new Set();
+    model.days.forEach((d) =>
+      Object.values(d.cells).forEach((c) => {
+        if (c && c.path) paths.add(resolveRelPath(current.path, c.path));
+      })
+    );
+    if (!paths.size) { toast("No recipes linked in this meal plan yet.", "warn"); return; }
+
+    toast("Building shopping list…", "info");
+    const seen = new Map();
+    for (const p of paths) {
+      try { collectIngredients((await Api.getNote(currentRepo, p)).content, seen); }
+      catch (_) { /* skip a missing/renamed recipe */ }
+    }
+    const items = [...seen.values()];
+    if (!items.length) { toast("Linked recipes have no Ingredients sections.", "warn"); return; }
+
+    const wk = model.week || weekFromPath(current.path);
+    const title = wk ? "Shopping list · Week " + wk.week : "Shopping list";
+    const body = [
+      "# " + title, "",
+      "_Generated from this week’s meal plan — quantities are not combined._", "",
+      ...items.map((t) => "- [ ] " + t), "",
+    ].join("\n");
+    const outPath = wk
+      ? "meal-plans/" + wk.year + "-W" + pad2(wk.week) + "-shopping.md"
+      : current.path.replace(/\.md$/i, "-shopping.md");
+
+    try {
+      if (dirty) await save(); // persist the plan so opening the list won't prompt
+      await Api.saveNote(currentRepo, outPath, body, "");
+      await loadList();
+      await openNote(outPath);
+      setMode("todo");
+      toast("Shopping list ready — " + items.length + " items.", "success");
+    } catch (err) {
+      toast("Could not save shopping list: " + err.message, "error");
+    }
+  }
+
+  // Starter content for a brand-new note, by inferred type.
+  function defaultScaffold(path) {
+    const t = noteType(path, "");
+    const now = new Date();
+    if (t === "planner") { const w = weekFromPath(path) || isoWeek(now); return plannerScaffold(w.year, w.week); }
+    if (t === "mealplan") { const w = weekFromPath(path) || isoWeek(now); return mealplanScaffold(w.year, w.week); }
+    if (t === "recipe") return recipeScaffold(titleFromPath(path));
+    return "# " + path.replace(/\.md$/i, "").split("/").pop() + "\n\n";
   }
 
   // ---- undo / redo ----
@@ -1568,16 +2106,21 @@
     }
     current = { path: name, content: "" };
     loadCollapsed();
-    textarea.value = "# " + name.replace(/\.md$/i, "").split("/").pop() + "\n\n";
+    textarea.value = defaultScaffold(name);
     resetHistory();
     currentPathEl.textContent = name;
-    setNoteChrome(noteType(name, textarea.value));
+    const t = noteType(name, textarea.value);
+    setNoteChrome(t);
     showEditor();
     closeSidebar();
     setDirty(true);
-    setMode("edit");
-    textarea.focus();
-    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    if (TYPED_MODES.includes(t)) {
+      setMode(t);
+    } else {
+      setMode("edit");
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    }
   }
 
   async function deleteNote() {
@@ -1791,6 +2334,13 @@
     const w = isoWeek(new Date());
     openPlannerWeek(w.year, w.week);
   });
+
+  // Meal plan: header entry point opens/creates this week; shopping-list button.
+  $("[data-mealplan-open]").addEventListener("click", () => {
+    const w = isoWeek(new Date());
+    openMealplanWeek(w.year, w.week);
+  });
+  $("[data-mealplan-shop]").addEventListener("click", generateShoppingList);
   if (repoSelect) {
     repoSelect.addEventListener("change", () => {
       const id = repoSelect.value;

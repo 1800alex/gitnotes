@@ -120,18 +120,28 @@ file. Everything rewrites the markdown, so autosave/commit/merge just work.
 *Reachable from a calendar button in the header ("This week's plan"), which
 opens or creates the current week.*
 
-### B. Recipes + meal plan  (next)
+### B. Recipes + meal plan  ✅ implemented (second slice)
 
 - **Recipe** — `recipes/sheet-pan-chicken.md`, `type: recipe`, frontmatter for
-  `servings`, `tags`, and an **Ingredients** section as a checklist so a shopping
-  list can aggregate it. Body holds steps. Recipe view = a clean card.
+  `servings`, `time`, `tags`, and an **Ingredients** section as a checklist so a
+  shopping list can aggregate it. Body holds steps. The **Recipe view** is a
+  read-optimised card: title, meta chips (servings/time/tags), rendered intro,
+  a tappable ingredients checklist (ticking rewrites the markdown line — handy
+  while cooking/shopping), and rendered steps.
 - **Meal plan** — `meal-plans/2026-W31.md`, `type: mealplan`. Body is a
-  week × {breakfast, lunch, dinner} table whose cells are markdown links to
-  recipe notes: `[Sheet-pan chicken](../recipes/sheet-pan-chicken.md)`. Meal-plan
-  view renders the grid; tapping a cell picks a recipe from the `recipes/` list.
-  A **Shopping list** button reads every linked recipe's Ingredients and merges
-  them into a checklist note. Inter-note links reuse the existing relative-link
-  resolver already in `app.js`.
+  week × meals markdown table whose cells are recipe links or free text
+  (`[Sheet-pan chicken](../recipes/sheet-pan-chicken.md)`, or `Leftovers`). The
+  **Meal-plan view** renders mobile-first day cards with a tappable slot per
+  meal; a picker sets each slot from the `recipes/` folder, custom text, or
+  clear. Recipe cells open the linked note. A **Shopping list** button reads
+  every linked recipe's Ingredients, de-dupes them, and writes a new
+  `…-shopping.md` checklist note (opened in Checklist mode). Table parsing
+  tolerates variable meal columns and day counts; inter-note links reuse the
+  existing relative-link resolver in `app.js`.
+
+  *Reachable from a "Meals" calendar button in the header, which opens or
+  scaffolds the current week. New notes under `recipes/`, `meal-plans/` and
+  `planner/` are pre-filled with the right scaffold.*
 
 ### C. Meeting notes + follow-ups  (next)
 

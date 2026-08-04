@@ -20,6 +20,9 @@ bodyClass: app-body
     <button class="button button-ghost" type="button" data-planner-open title="This week's plan" aria-label="This week's plan">
       <i class="fa-solid fa-calendar-week"></i><span class="btn-label"> Plan</span>
     </button>
+    <button class="button button-ghost" type="button" data-mealplan-open title="This week's meals" aria-label="This week's meals">
+      <i class="fa-solid fa-utensils"></i><span class="btn-label"> Meals</span>
+    </button>
     <span class="git-pill" data-status title="Repository status">
       <i class="fa-solid fa-code-branch"></i>
       <span data-status-text>…</span>
@@ -100,6 +103,10 @@ bodyClass: app-body
         </div>
         <button class="mode-btn mode-btn-icon" data-mode="planner" type="button" data-planner-mode-btn
           title="Planner mode" aria-label="Planner mode" hidden><i class="fa-solid fa-calendar-week"></i></button>
+        <button class="mode-btn mode-btn-icon" data-mode="recipe" type="button" data-recipe-mode-btn
+          title="Recipe mode" aria-label="Recipe mode" hidden><i class="fa-solid fa-book-open"></i></button>
+        <button class="mode-btn mode-btn-icon" data-mode="mealplan" type="button" data-mealplan-mode-btn
+          title="Meal plan mode" aria-label="Meal plan mode" hidden><i class="fa-solid fa-bowl-food"></i></button>
         <button class="mode-btn mode-btn-icon" data-mode="todo" type="button"
           title="Checklist mode" aria-label="Checklist mode"><i class="fa-solid fa-list-check"></i></button>
         <button class="mode-btn is-active" data-mode="edit" type="button">Edit</button>
@@ -160,6 +167,23 @@ bodyClass: app-body
           title="Jump to this week">Today</button>
       </div>
       <div class="planner-scroll" data-planner-days></div>
+    </div>
+
+    <div class="editor-recipe" data-recipe-pane hidden>
+      <div class="recipe-scroll" data-recipe-body></div>
+    </div>
+
+    <div class="editor-mealplan" data-mealplan-pane hidden>
+      <div class="mealplan-toolbar">
+        <div class="planner-weeklabel">
+          <strong data-mealplan-week>Meal plan</strong>
+        </div>
+        <button class="todo-mini mealplan-shop" type="button" data-mealplan-shop
+          title="Generate a shopping list from the linked recipes">
+          <i class="fa-solid fa-cart-shopping"></i> Shopping list
+        </button>
+      </div>
+      <div class="mealplan-scroll" data-mealplan-grid></div>
     </div>
   </main>
 
