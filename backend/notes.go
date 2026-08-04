@@ -51,9 +51,9 @@ func (n *Notes) resolve(w http.ResponseWriter, r *http.Request, repoID string) (
 
 // NoteMeta is the lightweight listing entry sent to the UI.
 type NoteMeta struct {
-	Path     string `json:"path"`     // repo-relative, forward-slashed
-	Name     string `json:"name"`     // base file name
-	Dir      string `json:"dir"`      // parent dir ("" for root)
+	Path     string `json:"path"` // repo-relative, forward-slashed
+	Name     string `json:"name"` // base file name
+	Dir      string `json:"dir"`  // parent dir ("" for root)
 	Size     int64  `json:"size"`
 	Modified string `json:"modified"` // RFC3339
 }
@@ -470,7 +470,7 @@ type AgendaItem struct {
 
 // Shared action-item grammar (must match the frontend's parseAction):
 //
-//	- [ ] text due:YYYY-MM-DD every:<spec> since:YYYY-MM-DD @owner !
+//   - [ ] text due:YYYY-MM-DD every:<spec> since:YYYY-MM-DD @owner !
 var (
 	openTaskRe = regexp.MustCompile(`^\s*[-*+]\s+\[ \]\s+(.*)$`)
 	dueRe      = regexp.MustCompile(`(?:^|\s)due:(\d{4}-\d{2}-\d{2})(?:\s|$)`)
@@ -708,4 +708,149 @@ func (n *Notes) HandleAgenda(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// Bounds on a search so a huge repo (or a one-letter query) can't blow up a
+// response: cap matched lines per note, notes returned, and total matched lines.
+const (
+	searchMinQuery    = 2
+	searchMaxPerNote  = 5
+	searchMaxNotes    = 100
+	searchMaxMatches  = 500
+	searchSnippetLen  = 160
+	searchSnippetLead = 30 // chars of context kept before the match in a long line
+)
+
+// SearchLineMatch is one matching line within a note.
+type SearchLineMatch struct {
+	Line int    `json:"line"` // 1-based
+	Text string `json:"text"` // trimmed snippet centred on the match
+}
+
+// SearchHit groups a note's matches (and whether the path/title itself matched).
+type SearchHit struct {
+	Path       string            `json:"path"`
+	TitleMatch bool              `json:"titleMatch"`
+	Matches    []SearchLineMatch `json:"matches"`
+}
+
+// snippet trims a matching line and, if it's long, windows it around the match
+// so the hit is visible without shipping the whole line. Operates on runes so a
+// window never splits a multi-byte character.
+func snippet(line string, byteAt int) string {
+	trimmedLeading := len(line) - len(strings.TrimLeft(line, " \t"))
+	line = strings.TrimSpace(line)
+	runes := []rune(line)
+	if len(runes) <= searchSnippetLen {
+		return line
+	}
+	// Convert the byte offset (into the original line) to a rune offset on the
+	// trimmed line, approximately — close enough to centre the window.
+	at := len([]rune(line[:max0(byteAt-trimmedLeading)]))
+	if at > len(runes) {
+		at = len(runes)
+	}
+	start := 0
+	if at > searchSnippetLead {
+		start = at - searchSnippetLead
+	}
+	if start > len(runes)-searchSnippetLen {
+		start = len(runes) - searchSnippetLen
+	}
+	if start < 0 {
+		start = 0
+	}
+	end := start + searchSnippetLen
+	if end > len(runes) {
+		end = len(runes)
+	}
+	out := string(runes[start:end])
+	if start > 0 {
+		out = "…" + out
+	}
+	if end < len(runes) {
+		out = out + "…"
+	}
+	return out
+}
+
+func max0(n int) int {
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
+// searchNotes walks the repo and returns notes whose path or content contains
+// the (already lower-cased) query, case-insensitively.
+func (n *Notes) searchNotes(repoDir, query string) ([]SearchHit, error) {
+	hits := []SearchHit{}
+	total := 0
+	err := filepath.WalkDir(repoDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if name == ".git" || (name != "." && strings.HasPrefix(name, ".") && p != repoDir) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if len(hits) >= searchMaxNotes || total >= searchMaxMatches {
+			return filepath.SkipDir
+		}
+		if strings.HasPrefix(name, ".") || !strings.HasSuffix(strings.ToLower(name), n.cfg.NoteExt) {
+			return nil
+		}
+		data, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(repoDir, p)
+		rel = filepath.ToSlash(rel)
+		hit := SearchHit{Path: rel, TitleMatch: strings.Contains(strings.ToLower(rel), query), Matches: []SearchLineMatch{}}
+		for i, line := range strings.Split(string(data), "\n") {
+			if len(hit.Matches) >= searchMaxPerNote || total >= searchMaxMatches {
+				break
+			}
+			at := strings.Index(strings.ToLower(line), query)
+			if at < 0 {
+				continue
+			}
+			hit.Matches = append(hit.Matches, SearchLineMatch{Line: i + 1, Text: snippet(line, at)})
+			total++
+		}
+		if hit.TitleMatch || len(hit.Matches) > 0 {
+			hits = append(hits, hit)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(hits, func(i, j int) bool { return hits[i].Path < hits[j].Path })
+	return hits, nil
+}
+
+// HandleSearch: GET /api/search?repo=<id>&q=<text> — notes matching the query in
+// their path or content. Short queries (< 2 chars) return nothing.
+func (n *Notes) HandleSearch(w http.ResponseWriter, r *http.Request) {
+	h, repoDir, ok := n.resolve(w, r, r.URL.Query().Get("repo"))
+	if !ok {
+		return
+	}
+	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	if len([]rune(query)) < searchMinQuery {
+		writeJSON(w, http.StatusOK, map[string]any{"results": []SearchHit{}, "query": query})
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	hits, err := n.searchNotes(repoDir, query)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not search: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": hits, "query": query})
 }

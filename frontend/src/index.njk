@@ -30,6 +30,9 @@ bodyClass: app-body
         <button type="button" role="menuitem" data-new-kind="routines"><i class="fa-solid fa-rotate"></i> Routines</button>
       </div>
     </div>
+    <button class="button button-ghost" type="button" data-search-open title="Search notes" aria-label="Search">
+      <i class="fa-solid fa-magnifying-glass"></i><span class="btn-label"> Search</span>
+    </button>
     <button class="button button-ghost" type="button" data-agenda-open title="Agenda — what's due" aria-label="Agenda">
       <i class="fa-solid fa-calendar-day"></i><span class="btn-label"> Agenda</span>
     </button>
@@ -133,6 +136,11 @@ bodyClass: app-body
           <i class="fa-solid fa-trash"></i>
         </button>
       </div>
+    </div>
+    <div class="draft-banner" data-draft-banner hidden>
+      <i class="fa-solid fa-cloud-arrow-up"></i>
+      <span>Restored an unsaved draft from this device.</span>
+      <button type="button" class="draft-discard" data-draft-discard>Discard draft</button>
     </div>
     <div class="editor-body" data-mode-container>
       <textarea class="editor-textarea" data-textarea spellcheck="true"
@@ -245,6 +253,23 @@ bodyClass: app-body
       </div>
     </div>
     <div class="agenda-scroll" data-agenda-list></div>
+  </div>
+
+  <div class="app-agenda app-search" data-search-pane hidden>
+    <div class="agenda-toolbar">
+      <form class="search-form" data-search-form>
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="search" data-search-input placeholder="Search notes…" aria-label="Search notes"
+          autocomplete="off" enterkeyhint="search">
+      </form>
+      <div class="agenda-actions">
+        <span class="agenda-sub" data-search-sub></span>
+        <button class="todo-mini" type="button" data-search-close title="Close search" aria-label="Close">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+    </div>
+    <div class="agenda-scroll" data-search-results></div>
   </div>
 
   <div class="app-empty" data-empty-state>

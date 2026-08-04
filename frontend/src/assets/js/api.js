@@ -155,6 +155,14 @@
     refresh(repo) {
       return request("POST", "/api/refresh", { repo });
     },
+    // Full-text search across a repo's notes (path + content). Older backends
+    // 404 here; the app falls back to a client-side scan.
+    search(repo, q) {
+      return request(
+        "GET",
+        "/api/search?repo=" + encodeURIComponent(repo) + "&q=" + encodeURIComponent(q)
+      );
+    },
   };
 
   global.NotesApp = { Auth, Api, ApiError };

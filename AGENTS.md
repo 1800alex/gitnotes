@@ -43,15 +43,20 @@ specialized UI layered over ordinary markdown.
 - **Notes** ([notes.go](backend/notes.go)): path-safe CRUD (`resolvePath` rejects
   traversal/dotfiles and always works from the **absolutized** repo root — a
   relative `NOTES_REPO` must still be contained), file upload/raw serving, a
-  **3-way merge on save** (your loaded copy is the common ancestor), and
-  `GET /api/agenda` (server-side scan for due-dated items).
+  **3-way merge on save** (your loaded copy is the common ancestor),
+  `GET /api/agenda` (server-side scan for due-dated + recurring items), and
+  `GET /api/search?q=` (bounded grep over the working tree — path + content, with
+  windowed snippets; the client falls back to an in-browser scan if it 404s).
 - **Git** ([git.go](backend/git.go)): commit/push on write, fetch + fast-forward or
   merge on refresh; identity from `GIT_AUTHOR_NAME/EMAIL` or the mounted gitconfig.
 - **Frontend** ([app.js](frontend/src/assets/js/app.js)): one IIFE. The `<textarea>`
   markdown is the **single source of truth**; typed views parse it into a model,
   render an interactive DOM, and rewrite the markdown on every change (so undo/redo,
   autosave, and 3-way merge all keep working). Autosave is debounced and
-  **user-configurable** (Settings gear → on/off + idle delay, default 12s).
+  **user-configurable** (Settings gear → on/off + idle delay, default 12s). Every
+  edit is also mirrored to a **per-note `localStorage` draft** (independent of
+  auto-sync) so unsynced work survives a reload/crash; it's restored on reopen
+  (with a Discard banner) and cleared on a successful save.
 
 ## Typed notes & the "mode" pattern
 

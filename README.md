@@ -17,7 +17,11 @@ A small, self-hosted **markdown notebook** with a git-backed store.
   front-matter) light up as a weekly planner, recipe card, meal-plan grid,
   meeting-notes list, or **recurring-chores** view. A passive **Agenda** scans
   every note for `due:` deadlines and `every:` recurring chores and shows what's
-  next — no scheduler, you open it when you want it.
+  next — no scheduler, you open it when you want it. **Search** greps every note
+  (path + content) and jumps you to the matching line.
+- **Never lose an edit** — every change is mirrored to a local draft as you type
+  (independent of auto-sync), so unsynced work survives a reload or a dropped
+  connection and is restored the next time you open the note.
 
 ```
  browser ──JWT──▶ Go backend ──exec──▶ git ──ssh──▶ your remote

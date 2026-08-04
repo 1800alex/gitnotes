@@ -71,6 +71,12 @@
   const agendaPane = $("[data-agenda-pane]");
   const agendaListEl = $("[data-agenda-list]");
   const agendaSubEl = $("[data-agenda-sub]");
+  const searchPane = $("[data-search-pane]");
+  const searchForm = $("[data-search-form]");
+  const searchInput = $("[data-search-input]");
+  const searchResultsEl = $("[data-search-results]");
+  const searchSubEl = $("[data-search-sub]");
+  const draftBanner = $("[data-draft-banner]");
   const newMenuBtn = $("[data-new-menu]");
   const newDropdown = $("[data-new-dropdown]");
 
@@ -221,6 +227,7 @@
   // ---- editor ----
   let saving = false;
   let autosaveTimer = 0;
+  let draftTimer = 0;
 
   // Auto-sync (debounced autosave) is user-configurable: on/off + the idle delay
   // before a save fires. Defaults to a relaxed 12s; off means save manually.
@@ -265,10 +272,67 @@
     dirtyDot.hidden = !v;
     saveBtn.disabled = !v || !current;
     // Debounced auto-save so changes survive a tab close (esp. on mobile).
-    if (v) scheduleAutosave();
+    if (v) { scheduleAutosave(); scheduleDraftSave(); }
     else clearTimeout(autosaveTimer);
     // Reflect status (unless a save is mid-flight, which sets 'saving' itself).
     if (!saving) setSyncState(!current ? "idle" : v ? "dirty" : "saved");
+  }
+
+  // ---- local draft buffer ----
+  // Every edit is mirrored to localStorage (independent of auto-sync, so it works
+  // in manual-save mode and when offline). If a save can't reach the server, the
+  // work survives a tab close/crash and is restored the next time the note opens.
+  function draftKey(path) {
+    return "notes.draft:" + (currentRepo || "") + ":" + (path || "");
+  }
+  function scheduleDraftSave() {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(persistDraft, 800);
+  }
+  function persistDraft() {
+    if (!current || !dirty) return;
+    try {
+      localStorage.setItem(
+        draftKey(current.path),
+        JSON.stringify({ content: textarea.value, at: Date.now() })
+      );
+    } catch (_) { /* storage full / unavailable — best effort */ }
+  }
+  function clearDraft(path) {
+    clearTimeout(draftTimer);
+    try { localStorage.removeItem(draftKey(path)); } catch (_) { /* ignore */ }
+  }
+  function readDraft(path) {
+    try {
+      const raw = localStorage.getItem(draftKey(path));
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) { return null; }
+  }
+  function showDraftBanner(on) {
+    if (draftBanner) draftBanner.hidden = !on;
+  }
+  // Called from openNote after the server content is loaded: if a newer local
+  // draft exists and differs, restore it (dirty) and flag the banner.
+  function maybeRestoreDraft(path, serverContent) {
+    const d = readDraft(path);
+    if (!d || typeof d.content !== "string" || d.content === serverContent) {
+      clearDraft(path);
+      showDraftBanner(false);
+      return false;
+    }
+    textarea.value = d.content;
+    setDirty(true);
+    showDraftBanner(true);
+    return true;
+  }
+  function discardDraft() {
+    if (!current) return;
+    clearDraft(current.path);
+    textarea.value = current.content;
+    resetHistory();
+    setDirty(false);
+    showDraftBanner(false);
+    refreshModeView();
   }
 
   let imgObjectUrls = [];
@@ -428,6 +492,7 @@
 
   function showEditor() {
     if (agendaOpen) closeAgenda();
+    if (searchOpen) closeSearch();
     emptyState.hidden = true;
     editorPane.hidden = false;
   }
@@ -1844,6 +1909,7 @@
 
   function openAgenda() {
     if (!currentRepo) { toast("Pick a repo first.", "warn"); return; }
+    if (searchOpen) closeSearch();
     agendaOpen = true;
     closeSidebar();
     editorPane.hidden = true;
@@ -1967,6 +2033,143 @@
     row.append(due, main);
     row.addEventListener("click", () => { closeAgenda(); openNote(it.path); });
     return row;
+  }
+
+  // ---- search ----
+  // A full-text search over the repo: the server greps the working tree
+  // (GET /api/search) and returns notes with matching lines; older backends 404,
+  // so we fall back to fetching + scanning notes in the browser. Results group by
+  // note; clicking a line opens it at that line.
+  let searchOpen = false;
+  let searchTimer = 0;
+  let searchSeq = 0; // guards against out-of-order responses
+
+  function openSearch() {
+    if (!currentRepo) { toast("Pick a repo first.", "warn"); return; }
+    if (agendaOpen) closeAgenda();
+    searchOpen = true;
+    closeSidebar();
+    editorPane.hidden = true;
+    emptyState.hidden = true;
+    searchPane.hidden = false;
+    searchInput.focus();
+    searchInput.select();
+    if (searchInput.value.trim()) runSearch();
+  }
+  function closeSearch() {
+    searchOpen = false;
+    searchPane.hidden = true;
+    if (current) editorPane.hidden = false;
+    else emptyState.hidden = false;
+  }
+
+  function scheduleSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(runSearch, 200);
+  }
+
+  // Client-side fallback for older backends without /api/search.
+  async function searchClient(q) {
+    const ql = q.toLowerCase();
+    const results = [];
+    const loaded = await Promise.all(
+      notes.map((n) => Api.getNote(currentRepo, n.path).then((r) => ({ path: n.path, content: r.content })).catch(() => null))
+    );
+    for (const r of loaded) {
+      if (!r) continue;
+      const hit = { path: r.path, titleMatch: r.path.toLowerCase().includes(ql), matches: [] };
+      r.content.split("\n").forEach((line, i) => {
+        if (hit.matches.length < 5 && line.toLowerCase().includes(ql)) {
+          hit.matches.push({ line: i + 1, text: line.trim().slice(0, 160) });
+        }
+      });
+      if (hit.titleMatch || hit.matches.length) results.push(hit);
+    }
+    results.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    return results;
+  }
+
+  async function runSearch() {
+    const q = searchInput.value.trim();
+    const seq = ++searchSeq;
+    searchResultsEl.textContent = "";
+    if (q.length < 2) { searchSubEl.textContent = q ? "Keep typing…" : ""; return; }
+    searchSubEl.textContent = "Searching…";
+    let results;
+    try {
+      results = (await Api.search(currentRepo, q)).results || [];
+    } catch (err) {
+      if (err && err.status === 404) results = await searchClient(q);
+      else { searchSubEl.textContent = "Search failed"; toast("Search failed: " + err.message, "error"); return; }
+    }
+    if (seq !== searchSeq || !searchOpen) return; // superseded or closed
+    renderSearch(q, results);
+  }
+
+  function renderSearch(q, results) {
+    searchResultsEl.textContent = "";
+    const noteCount = results.length;
+    const lineCount = results.reduce((s, r) => s + r.matches.length, 0);
+    searchSubEl.textContent = noteCount
+      ? noteCount + (noteCount === 1 ? " note" : " notes") + (lineCount ? " · " + lineCount + " line" + (lineCount === 1 ? "" : "s") : "")
+      : "No matches";
+    if (!noteCount) {
+      const p = document.createElement("p");
+      p.className = "agenda-empty";
+      p.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Nothing matched “' + escapeHtml(q) + '”.';
+      searchResultsEl.appendChild(p);
+      return;
+    }
+    for (const hit of results) {
+      const group = document.createElement("div");
+      group.className = "search-group";
+      const head = document.createElement("button");
+      head.type = "button";
+      head.className = "search-note" + (hit.titleMatch ? " title-match" : "");
+      head.innerHTML = '<i class="fa-solid fa-file-lines"></i> ';
+      head.append(document.createTextNode(hit.path));
+      head.addEventListener("click", () => { closeSearch(); openNote(hit.path); });
+      group.appendChild(head);
+      for (const m of hit.matches) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "search-line";
+        const ln = document.createElement("span");
+        ln.className = "search-lineno";
+        ln.textContent = m.line;
+        const txt = document.createElement("span");
+        txt.className = "search-snippet";
+        txt.append(highlightMatch(m.text, q));
+        row.append(ln, txt);
+        row.addEventListener("click", () => { closeSearch(); openNote(hit.path, { line: m.line }); });
+        group.appendChild(row);
+      }
+      searchResultsEl.appendChild(group);
+    }
+  }
+
+  // Build a snippet fragment with the matched substring wrapped in <mark>.
+  function highlightMatch(text, q) {
+    const frag = document.createDocumentFragment();
+    const hay = text.toLowerCase();
+    const needle = q.toLowerCase();
+    let i = 0;
+    let idx = hay.indexOf(needle);
+    if (!needle || idx < 0) { frag.append(document.createTextNode(text)); return frag; }
+    while (idx >= 0) {
+      if (idx > i) frag.append(document.createTextNode(text.slice(i, idx)));
+      const mk = document.createElement("mark");
+      mk.textContent = text.slice(idx, idx + q.length);
+      frag.append(mk);
+      i = idx + q.length;
+      idx = hay.indexOf(needle, i);
+    }
+    if (i < text.length) frag.append(document.createTextNode(text.slice(i)));
+    return frag;
+  }
+
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
 
   // ---- undo / redo ----
@@ -2712,8 +2915,10 @@
     else renderTodos(); // resync DOM/model if nothing actually changed
   }
 
-  async function openNote(path) {
+  async function openNote(path, opts) {
+    opts = opts || {};
     if (dirty && !confirm("Discard unsaved changes?")) return;
+    clearTimeout(draftTimer); // don't let a pending draft write land under the old path
     try {
       const res = await Api.getNote(currentRepo, path);
       current = { path: res.path, content: res.content };
@@ -2723,14 +2928,33 @@
       resetHistory();
       currentPathEl.textContent = res.path;
       setDirty(false);
+      // Restore a local draft (unsynced edits) if one is newer than the server copy.
+      const restored = maybeRestoreDraft(res.path, res.content);
       showEditor();
       closeSidebar();
       autoSelectMode(res.path, res.content);
       renderList();
-      if (mode === "edit") textarea.focus();
+      // A search result / link can ask to land on a specific line — force Edit so
+      // the raw line is visible, then place the cursor there.
+      if (opts.line) { setMode("edit"); jumpToLine(opts.line); }
+      else if (mode === "edit") textarea.focus();
+      if (restored) toast("Restored an unsaved draft for this note.", "info");
     } catch (err) {
       toast("Could not open note: " + err.message, "error");
     }
+  }
+
+  // Move the caret to the start of a 1-based line and scroll it into view.
+  function jumpToLine(line) {
+    const lines = textarea.value.split("\n");
+    const n = Math.max(1, Math.min(line, lines.length));
+    let offset = 0;
+    for (let i = 0; i < n - 1; i++) offset += lines[i].length + 1;
+    textarea.focus();
+    textarea.setSelectionRange(offset, offset + (lines[n - 1] || "").length);
+    // Approximate scroll: proportional to line position.
+    const ratio = (n - 1) / Math.max(1, lines.length);
+    textarea.scrollTop = Math.max(0, ratio * textarea.scrollHeight - textarea.clientHeight / 2);
   }
 
   function describeGit(git) {
@@ -2779,6 +3003,9 @@
       // auto-save would erase the user's ability to undo the change they just made.
       current.content = res.content;
       setDirty(false);
+      // Synced to the server — the local draft is now redundant.
+      clearDraft(current.path);
+      showDraftBanner(false);
       // A local commit that failed to push isn't fully synced — flag it.
       setSyncState(res.git && res.git.pushError ? "error" : "saved");
       // Auto-saves stay quiet on success; only surface push failures/merges.
@@ -3186,6 +3413,13 @@
   $("[data-agenda-close]").addEventListener("click", closeAgenda);
   $("[data-agenda-refresh]").addEventListener("click", () => { if (agendaOpen) renderAgenda(); });
 
+  // Search.
+  $("[data-search-open]").addEventListener("click", openSearch);
+  $("[data-search-close]").addEventListener("click", closeSearch);
+  searchForm.addEventListener("submit", (e) => { e.preventDefault(); runSearch(); });
+  searchInput.addEventListener("input", scheduleSearch);
+  $("[data-draft-discard]").addEventListener("click", discardDraft);
+
   // Settings (auto-sync).
   $("[data-settings]").addEventListener("click", (e) => { e.stopPropagation(); openSettings(e.currentTarget); });
   if (repoSelect) {
@@ -3216,6 +3450,7 @@
       if (!insertDropdown.hidden) setInsertMenu(false);
       if (!newDropdown.hidden) setNewMenu(false);
       if (agendaOpen) { closeAgenda(); return; }
+      if (searchOpen) { closeSearch(); return; }
       if (document.body.classList.contains("sidebar-open")) closeSidebar();
     }
   });

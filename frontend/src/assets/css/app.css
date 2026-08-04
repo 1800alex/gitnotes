@@ -1359,6 +1359,99 @@ html.app-root {
 .agenda-recur { font-size: .74rem; color: var(--muted); }
 .agenda-item.recurring .agenda-recur { color: var(--ink); }
 
+/* ---- search ---- */
+.search-form {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line-light);
+  background: var(--paper);
+  padding: 0 10px;
+  min-height: 40px;
+}
+.search-form i { color: var(--muted); }
+.search-form input {
+  flex: 1 1 auto;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  padding: 8px 0;
+  outline: none;
+  color: var(--ink);
+}
+.search-group { margin-bottom: 14px; }
+.search-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .78rem;
+  color: var(--muted);
+  padding: 6px 2px;
+}
+.search-note:hover { color: var(--ink); }
+.search-note.title-match { color: var(--ink); font-weight: 700; }
+.search-line {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line-light);
+  border-top: 0;
+  background: var(--white);
+  cursor: pointer;
+  font: inherit;
+  padding: 7px 10px;
+}
+.search-group .search-line:first-of-type { border-top: 1px solid var(--line-light); }
+.search-line:hover { background: var(--paper-2); }
+.search-lineno {
+  flex: 0 0 auto;
+  min-width: 34px;
+  text-align: right;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .72rem;
+  color: var(--muted);
+}
+.search-snippet { overflow-wrap: anywhere; white-space: pre-wrap; }
+.search-snippet mark { background: var(--accent); color: var(--ink); padding: 0 1px; }
+
+/* ---- draft banner ---- */
+.draft-banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px clamp(12px, 3vw, 24px);
+  background: #fff7d6;
+  border-bottom: 1px solid #e6d281;
+  color: #6b5900;
+  font-size: .88rem;
+}
+.draft-banner i { color: #b8860b; }
+.draft-discard {
+  margin-left: auto;
+  border: 1px solid #d4a017;
+  background: transparent;
+  color: #6b5900;
+  padding: 4px 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: .82rem;
+}
+.draft-discard:hover { background: #d4a017; color: #fff; }
+@media (prefers-color-scheme: dark) {
+  .draft-banner { background: #3a3413; border-bottom-color: #5c5320; color: #e8d98a; }
+  .draft-banner i { color: #e8c14b; }
+  .draft-discard { border-color: #6b5f28; color: #e8d98a; }
+}
+
 /* ---- routines (recurring chores) ---- */
 .editor-routines {
   flex: 1 1 auto;

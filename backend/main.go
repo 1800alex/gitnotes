@@ -64,6 +64,7 @@ func main() {
 	protected.HandleFunc("DELETE /api/note", notes.HandleDelete)
 	protected.HandleFunc("GET /api/status", notes.HandleStatus)
 	protected.HandleFunc("GET /api/agenda", notes.HandleAgenda)
+	protected.HandleFunc("GET /api/search", notes.HandleSearch)
 	protected.HandleFunc("POST /api/refresh", notes.HandleRefresh)
 	mux.Handle("/api/", auth.Middleware(protected))
 
