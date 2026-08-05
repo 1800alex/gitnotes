@@ -162,12 +162,14 @@ bodyClass: app-body
           </button>
         </div>
       </div>
-      <div class="todo-scroll">
-        <ul class="todo-list" data-todo-list></ul>
-        <p class="todo-empty" data-todo-empty hidden>
-          No checklist items in this note yet. Add one below, or write
-          <code>- [ ] task</code> lines in Edit mode.
-        </p>
+      <div class="pane-scroll">
+        <div class="todo-scroll">
+          <ul class="todo-list" data-todo-list></ul>
+          <p class="todo-empty" data-todo-empty hidden>
+            No checklist items in this note yet. Add one below, or write
+            <code>- [ ] task</code> lines in Edit mode.
+          </p>
+        </div>
       </div>
       <form class="todo-add" data-todo-add>
         <input type="text" data-todo-input placeholder="Add a task…" aria-label="Add a task"
@@ -191,11 +193,15 @@ bodyClass: app-body
         <button class="todo-mini planner-today" type="button" data-planner-today
           title="Jump to this week">Today</button>
       </div>
-      <div class="planner-scroll" data-planner-days></div>
+      <div class="pane-scroll">
+        <div class="planner-scroll" data-planner-days></div>
+      </div>
     </div>
 
     <div class="editor-recipe" data-recipe-pane hidden>
-      <div class="recipe-scroll" data-recipe-body></div>
+      <div class="pane-scroll">
+        <div class="recipe-scroll" data-recipe-body></div>
+      </div>
     </div>
 
     <div class="editor-mealplan" data-mealplan-pane hidden>
@@ -208,23 +214,29 @@ bodyClass: app-body
           <i class="fa-solid fa-cart-shopping"></i> Shopping list
         </button>
       </div>
-      <div class="mealplan-scroll" data-mealplan-grid></div>
+      <div class="pane-scroll">
+        <div class="mealplan-scroll" data-mealplan-grid></div>
+      </div>
     </div>
 
     <div class="editor-meeting" data-meeting-pane hidden>
-      <div class="meeting-scroll" data-meeting-body></div>
+      <div class="pane-scroll">
+        <div class="meeting-scroll" data-meeting-body></div>
+      </div>
     </div>
 
     <div class="editor-routines" data-routines-pane hidden>
       <div class="todo-toolbar">
         <span class="todo-count" data-routines-count></span>
       </div>
-      <div class="routines-scroll">
-        <ul class="routines-list" data-routines-list></ul>
-        <p class="todo-empty" data-routines-empty hidden>
-          No recurring chores yet. Add one below — e.g. <code>Take out the trash</code>
-          repeating <em>weekly</em>. Each chore shows up in the Agenda on its next due day.
-        </p>
+      <div class="pane-scroll">
+        <div class="routines-scroll">
+          <ul class="routines-list" data-routines-list></ul>
+          <p class="todo-empty" data-routines-empty hidden>
+            No recurring chores yet. Add one below — e.g. <code>Take out the trash</code>
+            repeating <em>weekly</em>. Each chore shows up in the Agenda on its next due day.
+          </p>
+        </div>
       </div>
       <form class="routines-add" data-routines-add>
         <input type="text" data-routines-input placeholder="Add a chore…" aria-label="Add a recurring chore"
@@ -252,7 +264,9 @@ bodyClass: app-body
         </button>
       </div>
     </div>
-    <div class="agenda-scroll" data-agenda-list></div>
+    <div class="pane-scroll">
+      <div class="agenda-scroll" data-agenda-list></div>
+    </div>
   </div>
 
   <div class="app-agenda app-search" data-search-pane hidden>
@@ -269,7 +283,9 @@ bodyClass: app-body
         </button>
       </div>
     </div>
-    <div class="agenda-scroll" data-search-results></div>
+    <div class="pane-scroll">
+      <div class="agenda-scroll" data-search-results></div>
+    </div>
   </div>
 
   <div class="app-empty" data-empty-state>

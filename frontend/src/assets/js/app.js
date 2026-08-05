@@ -2380,9 +2380,28 @@
     quote: () => prefixLines((l) => "> " + l.replace(/^>\s*/, "")),
   };
 
+  // Position a pop-out as a viewport-fixed panel just below its button, aligned
+  // to the button's right edge but clamped so it never spills off either side.
+  // Fixed positioning (vs absolute) keeps it on-screen regardless of how wide or
+  // overflowing the toolbar/header is — important on iOS Safari.
+  function positionDropdown(btn, dropdown) {
+    dropdown.style.position = "fixed";
+    dropdown.style.right = "auto"; // override the CSS right:0 (else it stretches)
+    dropdown.style.left = "0px";   // let it size to content before measuring
+    dropdown.style.top = "0px";
+    const r = btn.getBoundingClientRect();
+    const margin = 8;
+    const w = dropdown.offsetWidth || 200;
+    let left = r.right - w;
+    left = Math.max(margin, Math.min(left, window.innerWidth - w - margin));
+    dropdown.style.left = Math.round(left) + "px";
+    dropdown.style.top = Math.round(r.bottom + 4) + "px";
+  }
+
   function setInsertMenu(open) {
     insertDropdown.hidden = !open;
     insertMenuBtn.setAttribute("aria-expanded", String(open));
+    if (open) positionDropdown(insertMenuBtn, insertDropdown);
   }
 
   // ---- todo (checklist) mode ----
@@ -3457,6 +3476,7 @@
   function setNewMenu(open) {
     newDropdown.hidden = !open;
     newMenuBtn.setAttribute("aria-expanded", String(open));
+    if (open) positionDropdown(newMenuBtn, newDropdown);
   }
   newMenuBtn.addEventListener("click", (e) => {
     e.stopPropagation();

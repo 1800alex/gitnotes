@@ -554,6 +554,24 @@ html.app-root {
 /* ---- todo (checklist) mode ---- */
 .mode-btn-icon { font-size: .9rem; padding: 6px 10px; }
 
+/* Scroll regions are pinned with absolute positioning inside a flex-sized box.
+ * iOS Safari (WebKit) does not reliably give a scrollable height to a flex/grid
+ * child via `flex:1 + min-height:0` several levels deep, so those panes wouldn't
+ * scroll on iPhone. An absolutely-positioned child of a definite-size relative
+ * box always gets a concrete height, which WebKit scrolls correctly. */
+.pane-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+.pane-scroll > * {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
 .editor-todo {
   flex: 1 1 auto;
   min-height: 0;
@@ -1860,15 +1878,10 @@ html.app-root {
   .app-header-actions { gap: 5px; min-width: 0; }
   .app-header-actions .button { padding: 9px 10px; }
 
-  /* Pop-out menus: anchor to the toolbar/header right edge (a full-width
-   * positioned ancestor) instead of the button, so a 190px menu never runs off
-   * the left of a narrow screen (e.g. the toolbox on the meal-plan view). */
-  .editor-toolbar { position: relative; }
-  .insert-wrap { position: static; }
-  .insert-menu { right: 10px; left: auto; top: calc(100% + 4px); }
-  .new-wrap { position: static; }
-  .new-menu { right: 10px; left: auto; top: calc(100% + 4px); }
-  .insert-menu, .new-menu { max-width: calc(100vw - 20px); }
+  /* Pop-out menus are positioned as viewport-fixed panels by app.js
+   * (positionDropdown) so they never run off a narrow screen regardless of where
+   * the toolbar sits; just cap their width here. */
+  .insert-menu, .new-menu { max-width: calc(100vw - 16px); }
   /* Split view is pointless on a narrow screen; reclaim the toolbar space. */
   .mode-btn[data-mode="split"] { display: none; }
   /* The filename is desktop-only — hide it so the undo/redo + mode controls fit. */

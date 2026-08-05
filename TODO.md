@@ -55,12 +55,15 @@ A running list of gaps and improvements, roughly ranked. Born from a review on
 - **Header actions clipped** ✅ the action row overflowed and pushed Save off-screen
   with no way to scroll. On mobile the brand text is dropped (mark stays) and the
   icon buttons/spacing tightened so the whole row fits.
-- **Content-rich views wouldn't scroll** ✅ agenda / meal plan / meeting panes grew
-  the layout grid instead of scrolling internally (a grid track's default `auto`
-  min). Capped both axes with `minmax(0, 1fr)` so panes scroll in their own
-  container and the layout never exceeds the viewport.
-- **Pop-out menus off-screen** ✅ the toolbox/New menus anchored to their button and
-  ran off the edge; they now anchor to the toolbar/header right edge on mobile.
+- **Content-rich views wouldn't scroll (esp. iOS Safari)** ✅ WebKit doesn't
+  reliably give a scrollable height to a deep `flex:1 + min-height:0` chain, so
+  agenda / meal plan / meeting wouldn't scroll on iPhone even after the grid
+  `minmax(0,1fr)` cap. Every pane's scroll region is now an absolutely-positioned
+  child (`.pane-scroll > *` → `position:absolute; inset:0; overflow-y:auto`) of a
+  flex-sized box, which WebKit scrolls reliably.
+- **Pop-out menus off-screen** ✅ the toolbox/New menus now render as
+  viewport-`fixed` panels positioned by JS (`positionDropdown`), clamped to the
+  screen — independent of how wide/overflowing the toolbar is.
 - Covered by `mobile.spec.js` regressions (header fits, agenda scrolls, meal-plan
   scrolls + toolbox opens on-screen).
 
